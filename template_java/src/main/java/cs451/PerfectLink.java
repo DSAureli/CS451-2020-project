@@ -63,68 +63,114 @@ public class PerfectLink
 		recvDS = new DatagramSocket(recvPort);
 	}
 	
-//	private class SendThread implements Runnable
-//	{
-//		String data;
-//
-//		public SendThread(String data)
-//		{
-//			this.data = data;
-//		}
-//
-//		public void run()
-//		{
-//			// TODO
-//		}
-//	}
-	// Receive thread has its own ackSendDS
-	
-	public void send(String data, InetAddress address, int port) throws IOException
+	private class SendThread implements Runnable
 	{
-//		new Thread(new SendThread(data)).start();
-		
-		System.out.printf("Send to %s:%d%n", address, port);
-		
-		Message message = new Message(recvPort, data);
-		byte[] dataBytes = message.getBytes();
-		DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
-		sendDS.send(dataDP);
-		
-		System.out.printf("Sent: %s%n", message.getData());
-		
-		// Wait ACK
-		byte[] ackBuffer = new byte[256];
-		DatagramPacket ackDP = new DatagramPacket(ackBuffer, ackBuffer.length);
-		recvDS.receive(ackDP);
-		Message ackMessage = Message.fromBytes(ackBuffer);
-		if (ackMessage.getData().equals(String.format("%c%s", ACK, data)))
-			System.out.println("ACK");
-		
-		System.out.println("ACK received");
+		String data;
+		InetAddress address;
+		int port;
+
+		public SendThread(String data, InetAddress address, int port)
+		{
+			this.data = data;
+			this.address = address;
+			this.port = port;
+		}
+
+		public void run()
+		{
+			System.out.printf("Send to %s:%d%n", address, port);
+			
+			Message message = new Message(recvPort, data);
+			byte[] dataBytes = message.getBytes();
+			DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
+			try
+			{
+				sendDS.send(dataDP);
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+			
+			System.out.printf("Sent: %s%n", message.getData());
+			
+			// Wait ACK
+			byte[] ackBuffer = new byte[256];
+			DatagramPacket ackDP = new DatagramPacket(ackBuffer, ackBuffer.length);
+			try
+			{
+				recvDS.receive(ackDP);
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+			
+			Message ackMessage = Message.fromBytes(ackBuffer);
+			if (ackMessage.getData().equals(String.format("%c%s", ACK, data)))
+				System.out.println("ACK");
+			
+			System.out.println("ACK received");
+		}
 	}
 	
-	public void receive() throws IOException
+	private class ReceiveThread implements Runnable
 	{
-		System.out.printf("Receive from :%s%n", recvPort);
+		// TODO  Receive thread has its own ackSendDS?
 		
-		byte[] recvBuffer = new byte[256];
-		DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
-		recvDS.receive(dataDP);
-		Message recvMessage = Message.fromBytes(recvBuffer);
+		public ReceiveThread() { }
 		
-		System.out.printf("Received: %s%n", recvMessage.getData());
-		System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvMessage.getSenderRecvPort());
-		
-		// ACK
-		String ackString = String.format("%c%s", ACK, recvMessage.getData());
-		Message ackMessage = new Message(recvPort, ackString);
-		byte[] ackBytes = ackMessage.getBytes();
-		DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvMessage.getSenderRecvPort());
-		sendDS.send(ackDP);
+		public void run()
+		{
+			System.out.printf("Receive from :%s%n", recvPort);
+			
+			byte[] recvBuffer = new byte[256];
+			DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
+			try
+			{
+				recvDS.receive(dataDP);
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+			Message recvMessage = Message.fromBytes(recvBuffer);
+			
+			System.out.printf("Received: %s%n", recvMessage.getData());
+			System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvMessage.getSenderRecvPort());
+			
+			// ACK
+			String ackString = String.format("%c%s", ACK, recvMessage.getData());
+			Message ackMessage = new Message(recvPort, ackString);
+			byte[] ackBytes = ackMessage.getBytes();
+			DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvMessage.getSenderRecvPort());
+			try
+			{
+				sendDS.send(ackDP);
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+			
+			System.out.println("ACK sent");
+		}
+	}
+	
+	
+	public void send(String data, InetAddress address, int port)
+	{
+		new Thread(new SendThread(data, address, port)).start();
+	}
+	
+	public void receive()
+	{
+		new Thread(new ReceiveThread()).start();
 	}
 	
 	public void close()
 	{
+		// TODO use
 		sendDS.close();
 		recvDS.close();
 	}

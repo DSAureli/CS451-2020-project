@@ -83,7 +83,6 @@ public class Main
 			{
 				PerfectLink sendPL = new PerfectLink(sendHost.getPort());
 				sendPL.send("test", InetAddress.getByName(recvHost.getIp()), recvHost.getPort());
-				System.out.println("Sent and confirmed");
 			}
 			catch (Exception e)
 			{
@@ -97,7 +96,6 @@ public class Main
 			{
 				PerfectLink recvPL = new PerfectLink(recvHost.getPort());
 				recvPL.receive();
-				System.out.println("Received and ACKed");
 			}
 			catch (Exception e)
 			{
