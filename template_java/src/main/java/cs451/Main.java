@@ -79,10 +79,9 @@ public class Main
 		if (parser.myId() == 1)
 		{
 			// sender
-			
 			try
 			{
-				PerfectLink sendPL = new PerfectLink(sendHost.getPort(), recvHost.getPort());
+				PerfectLink sendPL = new PerfectLink(sendHost.getPort());
 				sendPL.send("test", InetAddress.getByName(recvHost.getIp()), recvHost.getPort());
 				System.out.println("Sent and confirmed");
 			}
@@ -94,10 +93,9 @@ public class Main
 		else
 		{
 			// receiver
-			
 			try
 			{
-				PerfectLink recvPL = new PerfectLink(recvHost.getPort(), sendHost.getPort());
+				PerfectLink recvPL = new PerfectLink(recvHost.getPort());
 				recvPL.receive();
 				System.out.println("Received and ACKed");
 			}

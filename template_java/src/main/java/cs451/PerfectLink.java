@@ -1,10 +1,8 @@
 package cs451;
 
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.SocketException;
+import java.io.Serializable;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
 
 public class PerfectLink
@@ -81,33 +79,55 @@ public class PerfectLink
 		}
 	}
 	
-	DatagramSocket sendDS;
-	DatagramSocket recvDS;
+	private final int recvPort;
+	private final DatagramSocket sendDS;
+	private final DatagramSocket recvDS;
 	
-	public PerfectLink(int recvPort, int destPort) throws SocketException
+	static char ACK = (char) 6;
+	
+	public PerfectLink(int recvPort) throws SocketException
 	{
 		this.recvPort = recvPort;
-		this.destPort = destPort;
 		
 		sendDS = new DatagramSocket();
 		recvDS = new DatagramSocket(recvPort);
 	}
 	
+//	private class SendThread implements Runnable
+//	{
+//		String data;
+//
+//		public SendThread(String data)
+//		{
+//			this.data = data;
+//		}
+//
+//		public void run()
+//		{
+//			// TODO
+//		}
+//	}
+	// Receive thread has its own ackSendDS
+	
 	public void send(String data, InetAddress address, int port) throws IOException
 	{
+//		new Thread(new SendThread(data)).start();
+		
 		System.out.printf("Send to %s:%d%n", address, port);
-		byte[] dataBytes = data.getBytes();
+		
+		Message message = new Message(/*recvDS.getInetAddress(), */recvPort, data);
+		byte[] dataBytes = message.getBytes();
 		DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
 		sendDS.send(dataDP);
 		
-		System.out.println("Sent");
+		System.out.printf("Sent: %s%n", message.getData());
 		
 		// Wait ACK
 		byte[] ackBuffer = new byte[256];
 		DatagramPacket ackDP = new DatagramPacket(ackBuffer, ackBuffer.length);
 		recvDS.receive(ackDP);
-		String ackString = new String(ackBuffer, StandardCharsets.UTF_8);
-		if (ackString.equals(String.format("ACK %s", data)))
+		Message ackMessage = Message.fromBytes(ackBuffer);
+		if (ackMessage.getData().equals(String.format("%c%s", ACK, data)))
 			System.out.println("ACK");
 		
 		System.out.println("ACK received");
@@ -115,20 +135,21 @@ public class PerfectLink
 	
 	public void receive() throws IOException
 	{
-		System.out.printf("Receive from :%s", recvPort);
+		System.out.printf("Receive from :%s%n", recvPort);
 		
 		byte[] recvBuffer = new byte[256];
 		DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
 		recvDS.receive(dataDP);
-		String recvString = new String(recvBuffer, StandardCharsets.UTF_8);
+		Message recvMessage = Message.fromBytes(recvBuffer);
 		
-		System.out.println("Received");
-		System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), dataDP.getPort());
+		System.out.printf("Received: %s%n", recvMessage.getData());
+		System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvMessage.getSenderRecvPort());
 		
 		// ACK
-		String ackString = String.format("ACK %s", recvString);
-		byte[] ackBytes = ackString.getBytes();
-		DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), destPort);
+		String ackString = String.format("%c%s", ACK, recvMessage.getData());
+		Message ackMessage = new Message(/*recvDS.getInetAddress(), */recvPort, ackString);
+		byte[] ackBytes = ackMessage.getBytes();
+		DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvMessage.getSenderRecvPort());
 		sendDS.send(ackDP);
 	}
 	
