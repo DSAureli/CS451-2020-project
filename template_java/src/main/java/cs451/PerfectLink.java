@@ -11,14 +11,14 @@ public class PerfectLink
 {
 	private static class Message implements Serializable
 	{
-		private final InetAddress senderAddress;
+//		private final InetAddress senderAddress;
 		private final int senderRecvPort;
 		private final String data;
 		
-		public InetAddress getSenderAddress()
-		{
-			return senderAddress;
-		}
+//		public InetAddress getSenderAddress()
+//		{
+//			return senderAddress;
+//		}
 		
 		public int getSenderRecvPort()
 		{
@@ -30,39 +30,54 @@ public class PerfectLink
 			return data;
 		}
 		
-		public Message(InetAddress senderAddress, int senderRecvPort, String data)
+		public Message(/*InetAddress senderAddress, */int senderRecvPort, String data)
 		{
-			this.senderAddress = senderAddress;
+//			this.senderAddress = senderAddress;
 			this.senderRecvPort = senderRecvPort;
 			this.data = data;
 		}
 		
-		static char start = (char) 2; // STX (start of text)
-		static char sep = (char) 30; // RS (record separator)
+		static char STX = (char) 2; // start of text
+		static char RS = (char) 30; // record separator
+//		static char STX = (char) '!'; // start of text
+//		static char RS = (char) '@'; // record separator
 		
 		public static Message fromBytes(byte[] bytes) throws RuntimeException, UnknownHostException
 		{
-			String[] parts = new String(bytes, StandardCharsets.US_ASCII).split(String.valueOf(sep));
-			if (parts.length != 4 || !parts[0].equals(String.valueOf(start)))
+			String string = new String(bytes, StandardCharsets.US_ASCII);
+//			System.out.printf("fromBytes_string: %s%n", string);
+			String[] parts = string.split(String.valueOf(RS));
+			if (parts.length != 3 || !parts[0].equals(String.valueOf(STX)))
 			{
+//				System.out.printf("fromBytes_parts[0]: %s%n", parts[0]);
+//				System.out.printf("fromBytes_parts[2]: %s%n", parts[2]);
+//				System.out.printf("fromBytes_parts[1]: %s%n", parts[1]);
 				throw new RuntimeException("Byte array is not a serialization of a Message object");
 			}
 			
-			return new Message(InetAddress.getByName(parts[1]),
-			                   Integer.parseInt(parts[2]),
-			                   parts[3]);
+//			return new Message(InetAddress.getByName(parts[1]),
+//			                   Integer.parseInt(parts[2]),
+//			                   parts[3]);
+			return new Message(Integer.parseInt(parts[1]), parts[2]);
 		}
 		
 		public byte[] getBytes()
 		{
-			return new String(start +
-					                  sep +
-					                  senderAddress.getHostAddress() +
-					                  sep +
-					                  senderRecvPort +
-					                  sep +
-					                  data)
-					.getBytes(StandardCharsets.US_ASCII);
+//			System.out.printf("STX: %c%n", STX);
+//			System.out.printf("STX: %c%n", RS);
+//			System.out.printf("STX: %d%n", senderRecvPort);
+//			System.out.printf("STX: %s%n", data);
+//			System.out.printf("String.format: %c%c%d%c%s%n", STX, RS, senderRecvPort, RS, data);
+//			String fmt = (STX +
+//					//RS +
+//					//senderAddress.getHostAddress() +
+//					RS +
+//					senderRecvPort +
+//					RS +
+//					data);
+			String fmt = String.format("%c%c%d%c%s", STX, RS, senderRecvPort, RS, data);
+//			System.out.printf("getBytes_fmt: %s%n", fmt);
+			return fmt.getBytes(StandardCharsets.US_ASCII);
 		}
 	}
 	
