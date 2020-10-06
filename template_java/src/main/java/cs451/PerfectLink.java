@@ -9,8 +9,62 @@ import java.nio.charset.StandardCharsets;
 
 public class PerfectLink
 {
-	int recvPort;
-	int destPort;
+	private static class Message implements Serializable
+	{
+		private final InetAddress senderAddress;
+		private final int senderRecvPort;
+		private final String data;
+		
+		public InetAddress getSenderAddress()
+		{
+			return senderAddress;
+		}
+		
+		public int getSenderRecvPort()
+		{
+			return senderRecvPort;
+		}
+		
+		public String getData()
+		{
+			return data;
+		}
+		
+		public Message(InetAddress senderAddress, int senderRecvPort, String data)
+		{
+			this.senderAddress = senderAddress;
+			this.senderRecvPort = senderRecvPort;
+			this.data = data;
+		}
+		
+		static char start = (char) 2; // STX (start of text)
+		static char sep = (char) 30; // RS (record separator)
+		
+		public static Message fromBytes(byte[] bytes) throws RuntimeException, UnknownHostException
+		{
+			String[] parts = new String(bytes, StandardCharsets.US_ASCII).split(String.valueOf(sep));
+			if (parts.length != 4 || !parts[0].equals(String.valueOf(start)))
+			{
+				throw new RuntimeException("Byte array is not a serialization of a Message object");
+			}
+			
+			return new Message(InetAddress.getByName(parts[1]),
+			                   Integer.parseInt(parts[2]),
+			                   parts[3]);
+		}
+		
+		public byte[] getBytes()
+		{
+			return new String(start +
+					                  sep +
+					                  senderAddress.getHostAddress() +
+					                  sep +
+					                  senderRecvPort +
+					                  sep +
+					                  data)
+					.getBytes(StandardCharsets.US_ASCII);
+		}
+	}
 	
 	DatagramSocket sendDS;
 	DatagramSocket recvDS;
