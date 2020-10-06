@@ -5,7 +5,10 @@ import cs451.Parser.Parser;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.SocketException;
 
 public class Main
 {
@@ -66,7 +69,45 @@ public class Main
 		
 		System.out.println("Broadcasting messages...");
 		
-		// TODO
+		//// TODO
+		
+		// test socket send/recv
+		
+		Host sendHost = parser.hosts().get(0);
+		Host recvHost = parser.hosts().get(1);
+		
+		if (parser.myId() == 1)
+		{
+			// sender
+			
+			try
+			{
+				PerfectLink sendPL = new PerfectLink(sendHost.getPort(), recvHost.getPort());
+				sendPL.send("test", InetAddress.getByName(recvHost.getIp()), recvHost.getPort());
+				System.out.println("Sent and confirmed");
+			}
+			catch (Exception e)
+			{
+				e.printStackTrace();
+			}
+		}
+		else
+		{
+			// receiver
+			
+			try
+			{
+				PerfectLink recvPL = new PerfectLink(recvHost.getPort(), sendHost.getPort());
+				recvPL.receive();
+				System.out.println("Received and ACKed");
+			}
+			catch (Exception e)
+			{
+				e.printStackTrace();
+			}
+		}
+		
+		////
 		
 		System.out.println("Signaling end of broadcasting messages");
 		coordinator.finishedBroadcasting();
