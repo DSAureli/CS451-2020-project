@@ -7,8 +7,26 @@ import java.nio.charset.StandardCharsets;
 
 public class PerfectLink
 {
-	private static class Message implements Serializable
+	// ASCII Control Codes
+	private static class CC
 	{
+		public static char SOH = (char) 1; // start of heading
+		public static char STX = (char) 2; // start of text
+		public static char ENQ = (char) 5; // enquiry
+		public static char ACK = (char) 6; // acknowledge
+		public static char RS = (char) 30; // record separator
+	}
+	
+	// TODO I'll need to readd the address of the original sender to Message, as it would be useful for ACK to the original process
+	// TODO Plus, maybe keeping an int for reordering in Message could work
+	private static class PLMessage implements Serializable
+	{
+		public enum PLMessageType
+		{
+			Normal, ACK
+		}
+		
+		private final PLMessageType messageType;
 		private final int senderRecvPort;
 		private final String data;
 		
@@ -22,30 +40,38 @@ public class PerfectLink
 			return data;
 		}
 		
-		public Message(int senderRecvPort, String data)
+		public PLMessage(PLMessageType messageType, int senderRecvPort, String data)
 		{
+			this.messageType = messageType;
 			this.senderRecvPort = senderRecvPort;
 			this.data = data;
 		}
 		
-		static char STX = (char) 2; // start of text
-		static char RS = (char) 30; // record separator
+		private static void error(String error) throws RuntimeException
+		{
+			throw new RuntimeException("Byte array is not a serialization of a Message object: " + error);
+		}
 		
-		public static Message fromBytes(byte[] bytes) throws RuntimeException
+		public static PLMessage fromBytes(byte[] bytes) throws RuntimeException
 		{
 			String string = new String(bytes, StandardCharsets.US_ASCII);
-			String[] parts = string.split(String.valueOf(RS));
-			if (parts.length != 3 || !parts[0].equals(String.valueOf(STX)))
-			{
-				throw new RuntimeException("Byte array is not a serialization of a Message object");
-			}
+			String[] parts = string.split(String.valueOf(CC.STX), 2);
+			if (parts.length < 2)
+				error("missing STX");
 			
-			return new Message(Integer.parseInt(parts[1]), parts[2]);
+			String[] headerParts = parts[0].split(String.valueOf(CC.RS));
+			if (headerParts.length != 3 || !headerParts[0].equals(String.valueOf(CC.SOH)))
+				error("malformed header");
+			
+			PLMessageType type = headerParts[1].equals(String.valueOf(CC.ENQ)) ? PLMessageType.Normal : PLMessageType.ACK;
+			return new PLMessage(type, Integer.parseInt(headerParts[2]), parts[1]);
 		}
 		
 		public byte[] getBytes()
 		{
-			return String.format("%c%c%d%c%s", STX, RS, senderRecvPort, RS, data).getBytes(StandardCharsets.US_ASCII);
+			char type = messageType == PLMessageType.Normal ? CC.ENQ : CC.ACK;
+			return String.format("%c%c%c%c%d%c%s", CC.SOH, CC.RS, type, CC.RS, senderRecvPort, CC.STX, data)
+					.getBytes(StandardCharsets.US_ASCII);
 		}
 	}
 	
@@ -80,34 +106,28 @@ public class PerfectLink
 		{
 			System.out.printf("Send to %s:%d%n", address, port);
 			
-			Message message = new Message(recvPort, data);
-			byte[] dataBytes = message.getBytes();
+			PLMessage plMessage = new PLMessage(PLMessage.PLMessageType.Normal, recvPort, data);
+			byte[] dataBytes = plMessage.getBytes();
 			DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
-			try
-			{
+			try {
 				sendDS.send(dataDP);
-			}
-			catch (IOException e)
-			{
+			} catch (IOException e) {
 				e.printStackTrace();
 			}
 			
-			System.out.printf("Sent: %s%n", message.getData());
+			System.out.printf("Sent: %s%n", plMessage.getData());
 			
 			// Wait ACK
 			byte[] ackBuffer = new byte[256];
 			DatagramPacket ackDP = new DatagramPacket(ackBuffer, ackBuffer.length);
-			try
-			{
+			try {
 				recvDS.receive(ackDP);
-			}
-			catch (IOException e)
-			{
+			} catch (IOException e) {
 				e.printStackTrace();
 			}
 			
-			Message ackMessage = Message.fromBytes(ackBuffer);
-			if (ackMessage.getData().equals(String.format("%c%s", ACK, data)))
+			PLMessage ackPLMessage = PLMessage.fromBytes(ackBuffer);
+			if (ackPLMessage.getData().equals(String.format("%c%s", ACK, data)))
 				System.out.println("ACK");
 			
 			System.out.println("ACK received");
@@ -122,41 +142,34 @@ public class PerfectLink
 		
 		public void run()
 		{
-			System.out.printf("Receive from :%s%n", recvPort);
-			
-			byte[] recvBuffer = new byte[256];
-			DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
-			try
-			{
-				recvDS.receive(dataDP);
-			}
-			catch (IOException e)
-			{
-				e.printStackTrace();
-			}
-			Message recvMessage = Message.fromBytes(recvBuffer);
-			
-			System.out.printf("Received: %s%n", recvMessage.getData());
-			System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvMessage.getSenderRecvPort());
-			
-			// ACK
-			String ackString = String.format("%c%s", ACK, recvMessage.getData());
-			Message ackMessage = new Message(recvPort, ackString);
-			byte[] ackBytes = ackMessage.getBytes();
-			DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvMessage.getSenderRecvPort());
-			try
-			{
-				sendDS.send(ackDP);
-			}
-			catch (IOException e)
-			{
-				e.printStackTrace();
-			}
-			
-			System.out.println("ACK sent");
+				System.out.printf("Receive from :%s%n", recvPort);
+				
+				byte[] recvBuffer = new byte[256];
+				DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
+				try {
+					recvDS.receive(dataDP);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+				PLMessage recvPLMessage = PLMessage.fromBytes(recvBuffer);
+				
+				System.out.printf("Received: %s%n", recvPLMessage.getData());
+				System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
+				
+				// ACK
+				String ackString = String.format("%c%s", ACK, recvPLMessage.getData());
+				PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPort, ackString);
+				byte[] ackBytes = ackPLMessage.getBytes();
+				DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
+				try {
+					sendDS.send(ackDP);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+				
+				System.out.println("ACK sent");
 		}
 	}
-	
 	
 	public void send(String data, InetAddress address, int port)
 	{
