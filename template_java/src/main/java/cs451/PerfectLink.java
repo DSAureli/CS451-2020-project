@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PerfectLink
@@ -88,11 +90,15 @@ public class PerfectLink
 		}
 	}
 	
+	// ==================================================================================================== //
+	
 	private final int recvPort;
 	private final DatagramSocket sendDS;
 	private final DatagramSocket recvDS;
 	
 	private final AtomicInteger seqNum = new AtomicInteger(0);
+	private final Set<Long> acked = ConcurrentHashMap.newKeySet();
+	
 	private Thread sendThread;
 	private Thread recvThread;
 	
@@ -123,6 +129,9 @@ public class PerfectLink
 			System.out.printf("Send to %s:%d%n", address, port);
 			
 			long seq = seqNum.getAndIncrement();
+			
+			while (!acked.contains(seq))
+			{
 				PLMessage plMessage = new PLMessage(PLMessage.PLMessageType.Normal, seq, recvPort, data);
 				byte[] dataBytes = plMessage.getBytes();
 				DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
@@ -131,41 +140,49 @@ public class PerfectLink
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
-			System.out.printf("Sent: %s%n", plMessage.getData());
-			
-			// Wait ACK
-			byte[] ackBuffer = new byte[256];
-			DatagramPacket ackDP = new DatagramPacket(ackBuffer, ackBuffer.length);
-			try {
-				recvDS.receive(ackDP);
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			
+				
+				// TODO exponential backoff
+				try {
+					Thread.sleep(10);
+				} catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				
 				System.out.printf("Sent: %s%n", plMessage.getData());
+			}
 		}
 	}
 	
 	private class ReceiveThread implements Runnable
 	{
-		// TODO  Receive thread has its own ackSendDS?
-		
 		public void run()
 		{
 			while (!Thread.interrupted())
 			{
-				System.out.printf("Receive from :%s%n", recvPort);
+				System.out.printf("Listening to port :%s%n", recvPort);
 				
-				byte[] recvBuffer = new byte[256];
+				// Receive datagram
+				byte[] recvBuffer = new byte[1024];
 				DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
 				try {
 					recvDS.receive(dataDP);
 				} catch (IOException e) {
 					e.printStackTrace();
 				}
+				
+				// Process according to the type
 				PLMessage recvPLMessage = PLMessage.fromBytes(recvBuffer);
+				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
+				{
+					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
+					acked.add(recvPLMessage.getSeqNum());
+				}
+				else
+				{
 					System.out.printf("Received: %s%n", recvPLMessage.getData());
 					System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
+					
+					// ACK
 					PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPLMessage.getSeqNum(), recvPort, null);
 					byte[] ackBytes = ackPLMessage.getBytes();
 					DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
@@ -176,9 +193,14 @@ public class PerfectLink
 					}
 					
 					System.out.println("ACK sent");
+					
+					// TODO ...
+				}
 			}
 		}
 	}
+	
+	// ==================================================================================================== //
 	
 	public void send(String data, InetAddress address, int port)
 	{
