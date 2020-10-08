@@ -67,36 +67,21 @@ public class Main
 		
 		//// TODO
 		
-		// test socket send/recv
+		Host host = parser.hosts().get(parser.myId() - 1);
 		
-		Host sendHost = parser.hosts().get(0);
-		Host recvHost = parser.hosts().get(1);
-		
-		if (parser.myId() == 1)
+		try
 		{
-			// sender
-			try
+			PerfectLink perfectLink = new PerfectLink(host.getPort());
+			perfectLink.startReceiving();
+
+			for (int i = 0; i < 3; i++)
 			{
-				PerfectLink sendPL = new PerfectLink(sendHost.getPort());
-				sendPL.send("test", InetAddress.getByName(recvHost.getIp()), recvHost.getPort());
-			}
-			catch (Exception e)
-			{
-				e.printStackTrace();
+				perfectLink.send(String.format("test_%d", i), InetAddress.getByName(host.getIp()), host.getPort());
 			}
 		}
-		else
+		catch (Exception e)
 		{
-			// receiver
-			try
-			{
-				PerfectLink recvPL = new PerfectLink(recvHost.getPort());
-				recvPL.startReceiving();
-			}
-			catch (Exception e)
-			{
-				e.printStackTrace();
-			}
+			e.printStackTrace();
 		}
 		
 		////
