@@ -78,15 +78,22 @@ public class PerfectLink
 	private final int recvPort;
 	private final DatagramSocket sendDS;
 	private final DatagramSocket recvDS;
+	// TODO test if improves performance
+	//private final DatagramSocket ackSendDS;
+	
+	private Thread sendThread;
+	private Thread recvThread;
 	
 	static char ACK = (char) 6;
 	
 	public PerfectLink(int recvPort) throws SocketException
 	{
 		this.recvPort = recvPort;
-		
 		sendDS = new DatagramSocket();
 		recvDS = new DatagramSocket(recvPort);
+		//ackSendDS = new DatagramSocket();
+		sendThread = null;
+		recvThread = null;
 	}
 	
 	private class SendThread implements Runnable
@@ -138,10 +145,10 @@ public class PerfectLink
 	{
 		// TODO  Receive thread has its own ackSendDS?
 		
-		public ReceiveThread() { }
-		
 		public void run()
 		{
+			while (!Thread.interrupted())
+			{
 				System.out.printf("Receive from :%s%n", recvPort);
 				
 				byte[] recvBuffer = new byte[256];
@@ -168,22 +175,29 @@ public class PerfectLink
 				}
 				
 				System.out.println("ACK sent");
+			}
 		}
 	}
 	
 	public void send(String data, InetAddress address, int port)
 	{
-		new Thread(new SendThread(data, address, port)).start();
+		sendThread = new Thread(new SendThread(data, address, port));
+		sendThread.start();
 	}
 	
-	public void receive()
+	public void startReceiving(/* TODO callback */)
 	{
-		new Thread(new ReceiveThread()).start();
+		recvThread = new Thread(new ReceiveThread());
+		recvThread.start();
 	}
 	
+	// TODO use
 	public void close()
 	{
-		// TODO use
+		if (sendThread != null)
+			sendThread.interrupt();
+		if (recvThread != null)
+			recvThread.interrupt();
 		sendDS.close();
 		recvDS.close();
 	}

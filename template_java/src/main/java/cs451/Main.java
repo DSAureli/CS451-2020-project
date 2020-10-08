@@ -2,13 +2,7 @@ package cs451;
 
 import cs451.Parser.Parser;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.DatagramPacket;
 import java.net.InetAddress;
-import java.net.Socket;
-import java.net.SocketException;
 
 public class Main
 {
@@ -16,9 +10,11 @@ public class Main
 	{
 		//immediately stop network packet processing
 		System.out.println("Immediately stopping network packet processing.");
+		// TODO ...
 		
 		//write/flush output file if necessary
 		System.out.println("Writing output.");
+		// TODO ...
 	}
 	
 	private static void initSignalHandlers()
@@ -95,7 +91,7 @@ public class Main
 			try
 			{
 				PerfectLink recvPL = new PerfectLink(recvHost.getPort());
-				recvPL.receive();
+				recvPL.startReceiving();
 			}
 			catch (Exception e)
 			{
