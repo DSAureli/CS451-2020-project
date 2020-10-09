@@ -2,7 +2,7 @@ package cs451.PerfectLink;
 
 import java.io.IOException;
 import java.net.*;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -12,20 +12,18 @@ public class PerfectLink
 	private final DatagramSocket sendDS;
 	private final DatagramSocket recvDS;
 	
-	private final AtomicInteger seqNum = new AtomicInteger(0);
-	private final Set<Long> ackedSet = ConcurrentHashMap.newKeySet();
-	
-	private Thread sendThread;
-	private Thread recvThread;
-	
 	public PerfectLink(int recvPort) throws SocketException
 	{
 		this.recvPort = recvPort;
 		sendDS = new DatagramSocket();
 		recvDS = new DatagramSocket(recvPort);
-		sendThread = null;
-		recvThread = null;
 	}
+	
+	private final AtomicInteger seqNum = new AtomicInteger(0);
+	private final Map<Long, Boolean> ackedMap = new ConcurrentHashMap<>();
+	
+	private Thread sendThread = null;
+	private Thread recvThread = null;
 	
 	// ==================================================================================================== //
 	
@@ -47,8 +45,9 @@ public class PerfectLink
 			System.out.printf("Send to %s:%d%n", address, port);
 			
 			long seq = seqNum.getAndIncrement();
+			ackedMap.put(seq, false);
 			
-			while (!ackedSet.contains(seq))
+			while (!ackedMap.get(seq))
 			{
 				PLMessage plMessage = new PLMessage(PLMessage.PLMessageType.Normal, seq, recvPort, data);
 				byte[] dataBytes = plMessage.getBytes();
@@ -68,6 +67,9 @@ public class PerfectLink
 				
 				System.out.printf("Sent: %s%n", plMessage.getData());
 			}
+			
+			// entry in ackedMap for this seq is not needed anymore
+			ackedMap.remove(seq);
 		}
 	}
 	
@@ -92,15 +94,19 @@ public class PerfectLink
 				PLMessage recvPLMessage = PLMessage.fromBytes(recvBuffer);
 				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
 				{
+					// ACK
 					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
-					ackedSet.add(recvPLMessage.getSeqNum());
+					
+					// Mark sequence number as acked if it's present in the map
+					ackedMap.replace(recvPLMessage.getSeqNum(), true);
 				}
 				else
 				{
+					// Normal
 					System.out.printf("Received: %s%n", recvPLMessage.getData());
 					System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
 					
-					// ACK
+					// Send ACK
 					PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPLMessage.getSeqNum(), recvPort, null);
 					byte[] ackBytes = ackPLMessage.getBytes();
 					DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
