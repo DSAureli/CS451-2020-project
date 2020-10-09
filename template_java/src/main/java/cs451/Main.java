@@ -73,7 +73,7 @@ public class Main
 		try
 		{
 			PerfectLink perfectLink = new PerfectLink(host.getPort());
-			perfectLink.startReceiving();
+			perfectLink.startReceiving((message) -> System.out.printf("Received: %s%n", message));
 
 			for (int i = 0; i < 3; i++)
 			{

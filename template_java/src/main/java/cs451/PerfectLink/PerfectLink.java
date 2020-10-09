@@ -5,6 +5,7 @@ import java.net.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 public class PerfectLink
 {
@@ -42,8 +43,6 @@ public class PerfectLink
 
 		public void run()
 		{
-			System.out.printf("Send to %s:%d%n", address, port);
-			
 			long seq = seqNum.getAndIncrement();
 			ackedMap.put(seq, false);
 			
@@ -75,12 +74,17 @@ public class PerfectLink
 	
 	private class ReceiveThread implements Runnable
 	{
+		Consumer<String> callback;
+		
+		public ReceiveThread(Consumer<String> callback)
+		{
+			this.callback = callback;
+		}
+		
 		public void run()
 		{
 			while (!Thread.interrupted())
 			{
-				System.out.printf("Listening to port :%s%n", recvPort);
-				
 				// Receive datagram
 				byte[] recvBuffer = new byte[1024];
 				DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
@@ -103,9 +107,6 @@ public class PerfectLink
 				else
 				{
 					// Normal
-					System.out.printf("Received: %s%n", recvPLMessage.getData());
-					System.out.printf("ACKing to %s:%d%n", dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
-					
 					// Send ACK
 					PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPLMessage.getSeqNum(), recvPort, null);
 					byte[] ackBytes = ackPLMessage.getBytes();
@@ -116,9 +117,7 @@ public class PerfectLink
 						e.printStackTrace();
 					}
 					
-					System.out.println("ACK sent");
-					
-					// TODO ...
+					callback.accept(recvPLMessage.getData());
 				}
 			}
 		}
@@ -132,9 +131,9 @@ public class PerfectLink
 		sendThread.start();
 	}
 	
-	public void startReceiving(/* TODO callback */)
+	public void startReceiving(Consumer<String> callback)
 	{
-		recvThread = new Thread(new ReceiveThread());
+		recvThread = new Thread(new ReceiveThread(callback));
 		recvThread.start();
 	}
 	
