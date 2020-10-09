@@ -63,9 +63,9 @@ public class PerfectLink
 				} catch (InterruptedException e) {
 					e.printStackTrace();
 				}
-				
-				System.out.printf("Sent: %s%n", plMessage.getData());
 			}
+			
+			System.out.printf("Sent: %s%n", data);
 			
 			// entry in ackedMap for this seq is not needed anymore
 			ackedMap.remove(seq);
@@ -125,7 +125,7 @@ public class PerfectLink
 	
 	// ==================================================================================================== //
 	
-	public void send(String data, InetAddress address, int port)
+	public void send(InetAddress address, int port, String data)
 	{
 		sendThread = new Thread(new SendThread(data, address, port));
 		sendThread.start();

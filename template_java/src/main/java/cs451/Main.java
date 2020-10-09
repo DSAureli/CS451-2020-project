@@ -4,6 +4,8 @@ import cs451.Parser.Parser;
 import cs451.PerfectLink.PerfectLink;
 
 import java.net.InetAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 
 public class Main
 {
@@ -30,7 +32,7 @@ public class Main
 		});
 	}
 	
-	public static void main(String[] args) throws InterruptedException
+	public static void main(String[] args) throws InterruptedException, SocketException, UnknownHostException
 	{
 		Parser parser = new Parser(args);
 		parser.parse();
@@ -70,19 +72,12 @@ public class Main
 		
 		Host host = parser.hosts().get(parser.myId() - 1);
 		
-		try
+		BestEffortBroadcast bestEffortBroadcast = new BestEffortBroadcast(parser.hosts(), parser.myId(), (message) ->
+				System.out.printf("Received: %s%n", message));
+		
+		for (int i = 0; i < 3; i++)
 		{
-			PerfectLink perfectLink = new PerfectLink(host.getPort());
-			perfectLink.startReceiving((message) -> System.out.printf("Received: %s%n", message));
-
-			for (int i = 0; i < 3; i++)
-			{
-				perfectLink.send(String.format("test_%d", i), InetAddress.getByName(host.getIp()), host.getPort());
-			}
-		}
-		catch (Exception e)
-		{
-			e.printStackTrace();
+			bestEffortBroadcast.broadcast(String.format("%d %d", host.getId(), i));
 		}
 		
 		////
