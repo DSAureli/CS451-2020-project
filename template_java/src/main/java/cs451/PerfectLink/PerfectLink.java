@@ -2,7 +2,9 @@ package cs451.PerfectLink;
 
 import java.io.IOException;
 import java.net.*;
+import java.util.AbstractMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -21,7 +23,10 @@ public class PerfectLink
 	}
 	
 	private final AtomicInteger seqNum = new AtomicInteger(0);
-	private final Map<Long, Boolean> ackedMap = new ConcurrentHashMap<>();
+	private final Map<Long, Boolean> ackedMap = new ConcurrentHashMap<>(); // <sequence number, ack received>
+	private final Set<AbstractMap.SimpleEntry<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(); // <sender port, sequence number>
+	// TODO discard messages sent too far in the past, so that the set can be "pruned" at fixed intervals
+	//     (send timestamp together with messages)
 	
 	private Thread sendThread = null;
 	private Thread recvThread = null;
@@ -34,15 +39,17 @@ public class PerfectLink
 		InetAddress address;
 		int port;
 
-		public SendThread(String data, InetAddress address, int port)
+		public SendThread(InetAddress address, int port, String data)
 		{
-			this.data = data;
 			this.address = address;
 			this.port = port;
+			this.data = data;
 		}
 
 		public void run()
 		{
+			System.out.printf("Sending %s to :%d%n", data, port);
+			
 			long seq = seqNum.getAndIncrement();
 			ackedMap.put(seq, false);
 			
@@ -117,7 +124,19 @@ public class PerfectLink
 						e.printStackTrace();
 					}
 					
-					callback.accept(recvPLMessage.getData());
+					AbstractMap.SimpleEntry<Integer, Long> receivedSetEntry =
+							new AbstractMap.SimpleEntry<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
+					boolean alreadyReceived;
+					// test&set
+					synchronized (this)
+					{
+						alreadyReceived = receivedSet.contains(receivedSetEntry);
+						if (!alreadyReceived)
+							receivedSet.add(receivedSetEntry);
+					}
+
+					if (!alreadyReceived)
+						callback.accept(recvPLMessage.getData());
 				}
 			}
 		}
@@ -127,7 +146,7 @@ public class PerfectLink
 	
 	public void send(InetAddress address, int port, String data)
 	{
-		sendThread = new Thread(new SendThread(data, address, port));
+		sendThread = new Thread(new SendThread(address, port, data));
 		sendThread.start();
 	}
 	
