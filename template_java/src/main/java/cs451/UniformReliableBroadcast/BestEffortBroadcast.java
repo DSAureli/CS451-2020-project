@@ -1,5 +1,6 @@
-package cs451;
+package cs451.UniformReliableBroadcast;
 
+import cs451.Host;
 import cs451.PerfectLink.PerfectLink;
 
 import java.net.InetAddress;
