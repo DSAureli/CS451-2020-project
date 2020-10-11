@@ -27,4 +27,16 @@ public class Constants
 	
 	// indexes for config
 	public static final int CONFIG_VALUE = 10;
+	
+	////
+	
+	// ASCII Control Codes
+	public static class CC
+	{
+		public static char SOH = (char) 1; // start of heading
+		public static char STX = (char) 2; // start of text
+		public static char ENQ = (char) 5; // enquiry
+		public static char ACK = (char) 6; // acknowledge
+		public static char RS = (char) 30; // record separator
+	}
 }
