@@ -2,6 +2,7 @@ package cs451;
 
 import cs451.Parser.Parser;
 import cs451.UniformReliableBroadcast.BestEffortBroadcast;
+import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
@@ -71,12 +72,12 @@ public class Main
 		
 		Host host = parser.hosts().get(parser.myId() - 1);
 		
-		BestEffortBroadcast bestEffortBroadcast = new BestEffortBroadcast(parser.hosts(), parser.myId(), (message) ->
-				System.out.printf("Received: %s%n", message));
+		UniformReliableBroadcast uniformReliableBroadcast = new UniformReliableBroadcast(parser.hosts(), parser.myId(), (message) ->
+				System.out.printf("Delivered: %s%n", message));
 		
 		for (int i = 0; i < 3; i++)
 		{
-			bestEffortBroadcast.broadcast(String.format("%d %d", host.getId(), i));
+			uniformReliableBroadcast.broadcast(String.format("%d %d", host.getId(), i));
 		}
 		
 		////
