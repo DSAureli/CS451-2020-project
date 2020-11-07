@@ -56,7 +56,7 @@ public class PerfectLink
 			
 			while (!ackedMap.get(seq))
 			{
-				PLMessage plMessage = new PLMessage(PLMessage.PLMessageType.Normal, seq, recvPort, data);
+				PLMessage plMessage = new PLMessage(PLMessage.PLMessageType.Normal, seq, recvPort, data.length(), data);
 				byte[] dataBytes = plMessage.getBytes();
 				DatagramPacket dataDP = new DatagramPacket(dataBytes, dataBytes.length, address, port);
 				try {
