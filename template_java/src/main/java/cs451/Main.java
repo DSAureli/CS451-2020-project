@@ -6,6 +6,7 @@ import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
+import java.util.List;
 
 public class Main
 {
@@ -70,14 +71,20 @@ public class Main
 		
 		//// TODO
 		
-		Host host = parser.hosts().get(parser.myId() - 1);
+		List<Host> targetHosts = parser.hosts();
+//		Host self = targetHosts.remove(parser.myId() - 1);
+		Host self = targetHosts.stream().filter(host -> host.getId() == parser.myId()).findFirst().get();
+		targetHosts.remove(self);
 		
-		UniformReliableBroadcast uniformReliableBroadcast = new UniformReliableBroadcast(parser.hosts(), parser.myId(), (message) ->
-				System.out.printf("Delivered: %s%n", message));
+//		System.out.printf("targetHosts: %s%n", targetHosts);
+//		System.out.printf("self: %s%n", self);
+		
+		UniformReliableBroadcast uniformReliableBroadcast = new UniformReliableBroadcast(self, targetHosts, (message) ->
+				System.out.printf("[Delivered] %s%n", message));
 		
 		for (int i = 0; i < 3; i++)
 		{
-			uniformReliableBroadcast.broadcast(String.format("%d %d", host.getId(), i));
+			uniformReliableBroadcast.broadcast(String.format("%d %d", self.getId(), i));
 		}
 		
 		////

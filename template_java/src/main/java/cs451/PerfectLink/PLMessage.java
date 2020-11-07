@@ -2,6 +2,7 @@ package cs451.PerfectLink;
 
 import cs451.Constants;
 
+import java.io.NotSerializableException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
 
@@ -45,12 +46,12 @@ class PLMessage implements Serializable
 		this.data = data;
 	}
 	
-	private static void error(String error) throws RuntimeException
+	private static void error(String error) throws NotSerializableException
 	{
-		throw new RuntimeException("Byte array is not a serialization of a PLMessage object: " + error);
+		throw new NotSerializableException("[PLMessage] " + error);
 	}
 	
-	public static PLMessage fromBytes(byte[] bytes) throws RuntimeException
+	public static PLMessage fromBytes(byte[] bytes) throws NotSerializableException
 	{
 		String string = new String(bytes, StandardCharsets.US_ASCII);
 		String[] parts = string.split(String.valueOf(Constants.CC.STX), 2);

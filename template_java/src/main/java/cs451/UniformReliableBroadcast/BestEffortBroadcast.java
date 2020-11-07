@@ -13,22 +13,28 @@ import java.util.function.Consumer;
 
 public class BestEffortBroadcast
 {
-	List<AbstractMap.SimpleEntry<InetAddress, Integer>> hostsInfo = new ArrayList<>();
-	PerfectLink perfectLink;
+	private final Consumer<String> deliverCallback;
 	
-	public BestEffortBroadcast(List<Host> hosts, int id, Consumer<String> deliverCallback) throws SocketException, UnknownHostException
+	private final List<AbstractMap.SimpleEntry<InetAddress, Integer>> hostsInfo = new ArrayList<>();
+	private final PerfectLink perfectLink;
+	
+	public BestEffortBroadcast(Host self, List<Host> targetHosts, Consumer<String> deliverCallback) throws SocketException, UnknownHostException
 	{
-		for (Host host: hosts)
+		this.deliverCallback = deliverCallback;
+		
+		for (Host host: targetHosts)
 		{
 			hostsInfo.add(new AbstractMap.SimpleEntry<>(InetAddress.getByName(host.getIp()), host.getPort()));
 		}
 		
-		this.perfectLink = new PerfectLink(hosts.stream().filter(host -> host.getId() == id).findFirst().get().getPort());
+		this.perfectLink = new PerfectLink(self.getPort());
 		this.perfectLink.startReceiving(deliverCallback);
 	}
 	
 	public void broadcast(String msg)
 	{
+		deliverCallback.accept(msg);
+		
 		for (AbstractMap.SimpleEntry<InetAddress, Integer> hostInfo: hostsInfo)
 		{
 			perfectLink.send(hostInfo.getKey(), hostInfo.getValue(), msg);

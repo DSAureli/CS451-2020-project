@@ -2,6 +2,7 @@ package cs451.UniformReliableBroadcast;
 
 import cs451.Constants;
 
+import java.io.NotSerializableException;
 import java.util.Objects;
 
 public class URBMessage
@@ -25,12 +26,12 @@ public class URBMessage
 		return message;
 	}
 	
-	private static void error(String error) throws RuntimeException
+	private static void error(String error) throws NotSerializableException
 	{
-		throw new RuntimeException("Byte array is not a serialization of a URBMessage object: " + error);
+		throw new NotSerializableException("[URBMessage] " + error);
 	}
 	
-	public static URBMessage fromString(String str)
+	public static URBMessage fromString(String str) throws NotSerializableException
 	{
 		String[] parts = str.split(String.valueOf(Constants.CC.STX), 2);
 		if (parts.length != 2)

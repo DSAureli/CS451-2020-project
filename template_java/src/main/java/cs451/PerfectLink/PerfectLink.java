@@ -1,6 +1,7 @@
 package cs451.PerfectLink;
 
 import java.io.IOException;
+import java.io.NotSerializableException;
 import java.net.*;
 import java.util.AbstractMap;
 import java.util.Map;
@@ -101,12 +102,23 @@ public class PerfectLink
 					e.printStackTrace();
 				}
 				
+				// Deserialize message
+				PLMessage recvPLMessage;
+				try
+				{
+					recvPLMessage = PLMessage.fromBytes(recvBuffer);
+				}
+				catch (NotSerializableException e)
+				{
+					e.printStackTrace();
+					return;
+				}
+				
 				// Process according to the type
-				PLMessage recvPLMessage = PLMessage.fromBytes(recvBuffer);
 				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
 				{
 					// ACK
-					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
+//					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
 					
 					// Mark sequence number as acked if it's present in the map
 					ackedMap.replace(recvPLMessage.getSeqNum(), true);
