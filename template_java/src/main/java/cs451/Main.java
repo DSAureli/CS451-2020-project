@@ -1,15 +1,19 @@
 package cs451;
 
 import cs451.Parser.Parser;
-import cs451.UniformReliableBroadcast.BestEffortBroadcast;
 import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Main
 {
+	private static final ExecutorService recvThreadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+	// all ExecutorService implementations should be thread safe for task submission
+	
 	private static void handleSignal()
 	{
 		//immediately stop network packet processing
@@ -23,14 +27,7 @@ public class Main
 	
 	private static void initSignalHandlers()
 	{
-		Runtime.getRuntime().addShutdownHook(new Thread()
-		{
-			@Override
-			public void run()
-			{
-				handleSignal();
-			}
-		});
+		Runtime.getRuntime().addShutdownHook(new Thread(Main::handleSignal));
 	}
 	
 	public static void main(String[] args) throws InterruptedException, SocketException, UnknownHostException
@@ -79,10 +76,13 @@ public class Main
 //		System.out.printf("targetHosts: %s%n", targetHosts);
 //		System.out.printf("self: %s%n", self);
 		
-		UniformReliableBroadcast uniformReliableBroadcast = new UniformReliableBroadcast(self, targetHosts, (message) ->
-				System.out.printf("[Delivered] %s%n", message));
+		UniformReliableBroadcast uniformReliableBroadcast
+			= new UniformReliableBroadcast(self,
+			                               targetHosts,
+			                               (message) -> System.out.printf("[Delivered] %s%n", message),
+			                               recvThreadPool);
 		
-		for (int i = 0; i < 3; i++)
+		for (int i = 0; i < 5; i++)
 		{
 			uniformReliableBroadcast.broadcast(String.format("%d %d", self.getId(), i));
 		}

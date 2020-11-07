@@ -7,6 +7,7 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 public class UniformReliableBroadcast
@@ -22,9 +23,12 @@ public class UniformReliableBroadcast
 	private final int id;
 	Consumer<String> deliverCallback;
 	
-	public UniformReliableBroadcast(Host self, List<Host> targetHosts, Consumer<String> deliverCallback) throws SocketException, UnknownHostException
+	public UniformReliableBroadcast(Host self,
+	                                List<Host> targetHosts,
+	                                Consumer<String> deliverCallback,
+	                                ExecutorService recvThreadPool) throws SocketException, UnknownHostException
 	{
-		this.bestEffortBroadcast = new BestEffortBroadcast(self, targetHosts, this::deliver);
+		this.bestEffortBroadcast = new BestEffortBroadcast(self, targetHosts, this::deliver, recvThreadPool);
 		this.hostsCount = targetHosts.size() + 1;
 		this.id = self.getId();
 		this.deliverCallback = deliverCallback;

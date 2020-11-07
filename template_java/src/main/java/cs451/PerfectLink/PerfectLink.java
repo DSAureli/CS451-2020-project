@@ -7,18 +7,23 @@ import java.util.AbstractMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class PerfectLink
 {
 	private final int recvPort;
+	private final ExecutorService recvThreadPool;
+	
 	private final DatagramSocket sendDS;
 	private final DatagramSocket recvDS;
 	
-	public PerfectLink(int recvPort) throws SocketException
+	public PerfectLink(int recvPort, ExecutorService recvThreadPool) throws SocketException
 	{
 		this.recvPort = recvPort;
+		this.recvThreadPool = recvThreadPool;
+		
 		sendDS = new DatagramSocket();
 		recvDS = new DatagramSocket(recvPort);
 	}
@@ -49,7 +54,7 @@ public class PerfectLink
 
 		public void run()
 		{
-			System.out.printf("Sending %s to :%d%n", data, port);
+//			System.out.printf("Sending %s to :%d%n", data, port);
 			
 			long seq = seqNum.getAndIncrement();
 			ackedMap.put(seq, false);
@@ -73,7 +78,7 @@ public class PerfectLink
 				}
 			}
 			
-			System.out.printf("Sent: %s%n", data);
+//			System.out.printf("Sent: %s%n", data);
 			
 			// entry in ackedMap for this seq is not needed anymore
 			ackedMap.remove(seq);
@@ -82,7 +87,7 @@ public class PerfectLink
 	
 	private class ReceiveThread implements Runnable
 	{
-		Consumer<String> callback;
+		private final Consumer<String> callback;
 		
 		public ReceiveThread(Consumer<String> callback)
 		{
@@ -102,54 +107,73 @@ public class PerfectLink
 					e.printStackTrace();
 				}
 				
-				// Deserialize message
-				PLMessage recvPLMessage;
-				try
-				{
-					recvPLMessage = PLMessage.fromBytes(recvBuffer);
-				}
-				catch (NotSerializableException e)
-				{
+				recvThreadPool.submit(new BufferHandlerThread(callback, dataDP.getAddress(), recvBuffer));
+			}
+		}
+	}
+	
+	private class BufferHandlerThread implements Runnable
+	{
+		private final Consumer<String> callback;
+		private final InetAddress senderAddress;
+		private final byte[] recvBuffer;
+		
+		public BufferHandlerThread(Consumer<String> callback, InetAddress senderAddress, byte[] recvBuffer)
+		{
+			this.callback = callback;
+			this.senderAddress = senderAddress;
+			this.recvBuffer = recvBuffer;
+		}
+		
+		public void run()
+		{
+			// Deserialize message
+			PLMessage recvPLMessage;
+			try
+			{
+				recvPLMessage = PLMessage.fromBytes(recvBuffer);
+			}
+			catch (NotSerializableException e)
+			{
+				e.printStackTrace();
+				return;
+			}
+			
+			// Process according to the type
+			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
+			{
+				// ACK
+//					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
+				
+				// Mark sequence number as acked if it's present in the map
+				ackedMap.replace(recvPLMessage.getSeqNum(), true);
+			}
+			else
+			{
+				// Normal
+				// Send ACK
+				PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPLMessage.getSeqNum(), recvPort, 0, null);
+				byte[] ackBytes = ackPLMessage.getBytes();
+				DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, senderAddress, recvPLMessage.getSenderRecvPort());
+				try {
+					sendDS.send(ackDP);
+				} catch (IOException e) {
 					e.printStackTrace();
-					return;
 				}
 				
-				// Process according to the type
-				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
+				AbstractMap.SimpleEntry<Integer, Long> receivedSetEntry =
+					new AbstractMap.SimpleEntry<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
+				boolean alreadyReceived;
+				// test&set
+				synchronized (this)
 				{
-					// ACK
-//					System.out.printf("Received ACK from %s%n", dataDP.getAddress());
-					
-					// Mark sequence number as acked if it's present in the map
-					ackedMap.replace(recvPLMessage.getSeqNum(), true);
-				}
-				else
-				{
-					// Normal
-					// Send ACK
-					PLMessage ackPLMessage = new PLMessage(PLMessage.PLMessageType.ACK, recvPLMessage.getSeqNum(), recvPort, null);
-					byte[] ackBytes = ackPLMessage.getBytes();
-					DatagramPacket ackDP = new DatagramPacket(ackBytes, ackBytes.length, dataDP.getAddress(), recvPLMessage.getSenderRecvPort());
-					try {
-						sendDS.send(ackDP);
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-					
-					AbstractMap.SimpleEntry<Integer, Long> receivedSetEntry =
-							new AbstractMap.SimpleEntry<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
-					boolean alreadyReceived;
-					// test&set
-					synchronized (this)
-					{
-						alreadyReceived = receivedSet.contains(receivedSetEntry);
-						if (!alreadyReceived)
-							receivedSet.add(receivedSetEntry);
-					}
-
+					alreadyReceived = receivedSet.contains(receivedSetEntry);
 					if (!alreadyReceived)
-						callback.accept(recvPLMessage.getData());
+						receivedSet.add(receivedSetEntry);
 				}
+				
+				if (!alreadyReceived)
+					recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
 			}
 		}
 	}
@@ -158,6 +182,7 @@ public class PerfectLink
 	
 	public void send(InetAddress address, int port, String data)
 	{
+		// TODO use thread pool for send threads? it may clog up with threads trying to send to dead processes...
 		sendThread = new Thread(new SendThread(address, port, data));
 		sendThread.start();
 	}
@@ -168,7 +193,7 @@ public class PerfectLink
 		recvThread.start();
 	}
 	
-	// TODO use
+	// TODO use?
 	public void close()
 	{
 		if (sendThread != null)
