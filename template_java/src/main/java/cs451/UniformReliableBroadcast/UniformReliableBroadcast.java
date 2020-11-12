@@ -79,3 +79,9 @@ public class UniformReliableBroadcast
 		}
 	}
 }
+	
+	public void close()
+	{
+		bestEffortBroadcast.close();
+	}
+}

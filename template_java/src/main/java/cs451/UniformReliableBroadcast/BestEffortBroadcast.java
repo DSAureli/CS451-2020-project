@@ -46,4 +46,9 @@ public class BestEffortBroadcast
 			perfectLink.send(hostInfo.getKey(), hostInfo.getValue(), msg);
 		}
 	}
+	
+	public void close()
+	{
+		perfectLink.close();
+	}
 }
