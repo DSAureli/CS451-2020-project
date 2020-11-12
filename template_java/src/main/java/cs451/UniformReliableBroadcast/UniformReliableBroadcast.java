@@ -63,18 +63,39 @@ public class UniformReliableBroadcast
 		ackMap.get(msg).add(urbMessage.getSender());
 		
 		// Forward message
-		if (!forwardedSet.contains(msg))
+		
+		boolean toForward = false;
+		synchronized (UniformReliableBroadcast.class)
 		{
-			forwardedSet.add(msg);
+			if (!forwardedSet.contains(msg))
+			{
+				forwardedSet.add(msg);
+				toForward = true;
+			}
 			
+		}
+		
+		if (toForward)
+		{
 			URBMessage fwdURBMessage = new URBMessage(id, msg);
 			bestEffortBroadcast.broadcast(fwdURBMessage.toString());
 		}
 		
 		// Check for delivery
-		if (ackMap.get(msg).size() > hostsCount / 2 && !deliveredSet.contains(msg))
+		
+		boolean toDeliver = false;
+		
+		synchronized (UniformReliableBroadcast.class)
 		{
-			deliveredSet.add(msg);
+			if (ackMap.get(msg).size() > hostsCount / 2 && !deliveredSet.contains(msg))
+			{
+				deliveredSet.add(msg);
+				toDeliver = true;
+			}
+		}
+		
+		if (toDeliver)
+		{
 			deliverCallback.accept(msg);
 		}
 	}
