@@ -1,7 +1,6 @@
 package cs451;
 
 import cs451.Parser.Parser;
-import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -10,18 +9,18 @@ import java.util.List;
 
 public class Main
 {
-	private static final int threadPoolSize = Runtime.getRuntime().availableProcessors() / 2;
+	private static final int threadPoolSize = Math.min(1, (Runtime.getRuntime().availableProcessors() / 2) - 1);
 	
 	// BufferedWriter is thread-safe
 	private static BufferedWriter fileWriter;
 	
-	private static UniformReliableBroadcast uniformReliableBroadcast;
+	private static FIFO fifo;
 	
 	private static void handleSignal() throws IOException
 	{
 		// immediately stop network packet processing
 		System.out.println("Immediately stopping network packet processing.");
-		uniformReliableBroadcast.close();
+		fifo.close();
 		
 		// write/flush output file if necessary
 		System.out.println("Writing output.");
@@ -74,35 +73,35 @@ public class Main
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		fileWriter = new BufferedWriter(new FileWriter(parser.output()));
 		
-		List<Host> targetHosts = parser.hosts();
-		Host self = targetHosts.stream().filter(host -> host.getId() == parser.myId()).findFirst().get();
-		targetHosts.remove(self);
-		
-		uniformReliableBroadcast = new UniformReliableBroadcast(self,
-		                                                        targetHosts,
-		                                                        (message) -> {
-																	try
-																	{
-																		fileWriter.append(String.format("d %s%n", message));
-																		System.out.printf("d %s%n", message);
-																	}
-																	catch (IOException e)
-																	{
-																		e.printStackTrace();
-																	}
-																},
-		                                                        threadPoolSize);
+		fifo = new FIFO(parser.hosts(),
+		                parser.myId(),
+		                (messageList) -> {
+							messageList.forEach(msg -> {
+				                try
+				                {
+					                fileWriter.append(String.format("d %s%n", msg));
+					                System.out.printf("d %s%n", msg);
+				                }
+				                catch (IOException e)
+				                {
+					                e.printStackTrace();
+				                }
+							});
+		                },
+		                threadPoolSize);
 		
 		System.out.println("Waiting for all processes for finish initialization");
 		coordinator.waitOnBarrier();
 		
 		System.out.println("Broadcasting messages...");
 		
-		for (int i = 0; i < 5; i++)
+		// TODO count type?
+		int msgCount = 5;
+		for (int i = 1; i <= msgCount; i++)
 		{
 			try
 			{
-				uniformReliableBroadcast.broadcast(String.format("%d %d", self.getId(), i));
+				fifo.broadcast(String.format("%d %d", parser.myId(), i));
 				fileWriter.append(String.format("b %s%n", i));
 				System.out.printf("b %s%n", i);
 			}
