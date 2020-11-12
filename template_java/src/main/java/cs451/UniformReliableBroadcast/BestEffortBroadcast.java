@@ -10,12 +10,16 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 public class BestEffortBroadcast
 {
-	private final Consumer<String> deliverCallback;
+	// all ExecutorService implementations should be thread-safe for task submission
+	private final ExecutorService sendThreadPool;
 	private final ExecutorService recvThreadPool;
+	
+	private final Consumer<String> deliverCallback;
 	
 	private final List<AbstractMap.SimpleEntry<InetAddress, Integer>> hostsInfo = new ArrayList<>();
 	private final PerfectLink perfectLink;
@@ -23,18 +27,18 @@ public class BestEffortBroadcast
 	public BestEffortBroadcast(Host self,
 	                           List<Host> targetHosts,
 	                           Consumer<String> deliverCallback,
-	                           ExecutorService recvThreadPool) throws SocketException, UnknownHostException
+	                           int threadPoolSize) throws SocketException, UnknownHostException
 	{
 		this.deliverCallback = deliverCallback;
-		this.recvThreadPool = recvThreadPool;
+		sendThreadPool = Executors.newFixedThreadPool(threadPoolSize);
+		recvThreadPool = Executors.newFixedThreadPool(threadPoolSize);
 		
 		for (Host host: targetHosts)
 		{
 			hostsInfo.add(new AbstractMap.SimpleEntry<>(InetAddress.getByName(host.getIp()), host.getPort()));
 		}
 		
-		this.perfectLink = new PerfectLink(self.getPort(), recvThreadPool);
-		this.perfectLink.startReceiving(deliverCallback);
+		this.perfectLink = new PerfectLink(self.getPort(), deliverCallback, recvThreadPool, sendThreadPool);
 	}
 	
 	public void broadcast(String msg)

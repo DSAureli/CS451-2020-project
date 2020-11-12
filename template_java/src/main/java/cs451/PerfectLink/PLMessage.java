@@ -5,6 +5,7 @@ import cs451.Constants;
 import java.io.NotSerializableException;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.StringJoiner;
 
 class PLMessage implements Serializable
 {
@@ -93,5 +94,17 @@ class PLMessage implements Serializable
 		                     Constants.CC.STX,
 		                     data)
 				.getBytes(StandardCharsets.US_ASCII);
+	}
+	
+	@Override
+	public String toString()
+	{
+		return new StringJoiner(", ", PLMessage.class.getSimpleName() + "[", "]")
+			.add("messageType=" + messageType)
+			.add("seqNum=" + seqNum)
+			.add("senderRecvPort=" + senderRecvPort)
+			.add("dataSize=" + dataSize)
+			.add("data='" + data + "'")
+			.toString();
 	}
 }

@@ -10,8 +10,7 @@ import java.util.List;
 
 public class Main
 {
-	private static final ExecutorService recvThreadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-	// all ExecutorService implementations should be thread safe for task submission
+	private static final int threadPoolSize = Runtime.getRuntime().availableProcessors() / 2;
 	
 	// BufferedWriter is thread-safe
 	private static BufferedWriter fileWriter;
@@ -92,7 +91,7 @@ public class Main
 																		e.printStackTrace();
 																	}
 																},
-		                                                        recvThreadPool);
+		                                                        threadPoolSize);
 		
 		System.out.println("Waiting for all processes for finish initialization");
 		coordinator.waitOnBarrier();

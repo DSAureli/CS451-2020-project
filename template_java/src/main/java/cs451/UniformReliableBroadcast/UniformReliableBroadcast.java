@@ -26,9 +26,9 @@ public class UniformReliableBroadcast
 	public UniformReliableBroadcast(Host self,
 	                                List<Host> targetHosts,
 	                                Consumer<String> deliverCallback,
-	                                ExecutorService recvThreadPool) throws SocketException, UnknownHostException
+	                                int threadPoolSize) throws SocketException, UnknownHostException
 	{
-		this.bestEffortBroadcast = new BestEffortBroadcast(self, targetHosts, this::deliver, recvThreadPool);
+		this.bestEffortBroadcast = new BestEffortBroadcast(self, targetHosts, this::deliver, threadPoolSize);
 		this.hostsCount = targetHosts.size() + 1;
 		this.id = self.getId();
 		this.deliverCallback = deliverCallback;
@@ -78,7 +78,6 @@ public class UniformReliableBroadcast
 			deliverCallback.accept(msg);
 		}
 	}
-}
 	
 	public void close()
 	{
