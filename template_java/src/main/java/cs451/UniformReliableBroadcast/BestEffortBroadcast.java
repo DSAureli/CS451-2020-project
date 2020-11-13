@@ -52,18 +52,18 @@ public class BestEffortBroadcast
 		}
 	}
 	
-	public void broadcast(String msg, Set<Integer> hostsToIgnore)
-	{
-		System.out.printf("[BEB.broadcast] hostsToIgnore: %s%n", hostsToIgnore);
-		
-		recvThreadPool.submit(() -> deliverCallback.accept(msg));
-		
-		for (Tuple3<Integer, InetAddress, Integer> hostInfo: hostsInfo)
-		{
-			if (!hostsToIgnore.contains(hostInfo._1()))
-				perfectLink.send(hostInfo._2(), hostInfo._3(), msg);
-		}
-	}
+//	public void broadcast(String msg, Set<Integer> hostsToIgnore)
+//	{
+//		System.out.printf("[BEB.broadcast] hostsToIgnore: %s%n", hostsToIgnore);
+//
+//		recvThreadPool.submit(() -> deliverCallback.accept(msg));
+//
+//		for (Tuple3<Integer, InetAddress, Integer> hostInfo: hostsInfo)
+//		{
+//			if (!hostsToIgnore.contains(hostInfo._1()))
+//				perfectLink.send(hostInfo._2(), hostInfo._3(), msg);
+//		}
+//	}
 	
 	public void close()
 	{

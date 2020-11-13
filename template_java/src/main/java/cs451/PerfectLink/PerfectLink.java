@@ -65,13 +65,12 @@ public class PerfectLink
 		//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 		
 		long minRTO = 500; // EDIT (original: 1000)
-		long maxRTO = 30 * 1000; // EDIT (original: 60 * 1000)
+		long maxRTO = 10 * 1000; // EDIT (original: 60 * 1000)
 		
 		RTO = Math.min(maxRTO, Math.max(minRTO, RTO));
 		
 		////
 		
-//		System.out.printf("[RTO] %s: %s%n", port, new RTOData(firstRTT, SRTT, RTTVAR, RTO));
 		rtoDataMap.put(port, new RTOData(firstRTT, SRTT, RTTVAR, RTO));
 	}
 	
@@ -96,9 +95,7 @@ public class PerfectLink
 				try
 				{
 					// take() is blocking
-//					System.out.printf("[PL.SendThread.run] BEF pendingSendQueue size : %d%n", pendingSendQueue.size());
 					request = pendingSendQueue.take();
-//					System.out.printf("[PL.SendThread.run] AFT pendingSendQueue size : %d%n", pendingSendQueue.size());
 				}
 				catch (InterruptedException e)
 				{
@@ -178,8 +175,6 @@ public class PerfectLink
 				:
 				request.toACKPLMessage(plRecvPort);
 			
-//			System.out.printf("Sending %s to :%d%n", msg, request.getPort());
-			
 			byte[] plMessageBytes = msg.getBytes();
 			DatagramPacket plMessageDP = new DatagramPacket(plMessageBytes, plMessageBytes.length, request.getAddress(), request.getPort());
 			try {
@@ -246,8 +241,6 @@ public class PerfectLink
 				return;
 			}
 			
-//			System.out.printf("Received %s from :%d%n", recvPLMessage, recvPLMessage.getSenderRecvPort());
-			
 			// Process according to the type
 			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
 			{
@@ -257,7 +250,6 @@ public class PerfectLink
 				{
 					//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 					
-//					System.out.printf("[RTO] resetting port: %d%n", recvPLMessage.getSenderRecvPort());
 					RTOData rtoData = rtoDataMap.get(recvPLMessage.getSenderRecvPort());
 					long R = System.currentTimeMillis() - recvPLMessage.getSendTimestamp();
 					int G = 1;
@@ -270,13 +262,11 @@ public class PerfectLink
 					
 					if (rtoData.isFirstRTT())
 					{
-//						System.out.printf("[RTO] resetting (first RTT)%n");
 						newSRTT = R;
 						newRTTVAR = R / 2.;
 					}
 					else
 					{
-//						System.out.printf("[RTO] resetting (not first RTT)%n");
 						newRTTVAR = (1 - beta) * rtoData.getRTTVAR() + beta * Math.abs(rtoData.getSRTT() - R);
 						newSRTT = (1 - alpha) * rtoData.getSRTT() + alpha * R;
 					}

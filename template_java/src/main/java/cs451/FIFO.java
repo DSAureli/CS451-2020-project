@@ -63,8 +63,6 @@ public class FIFO
 			{
 				// Retrieve all pending deliveries, blocking if none available
 				
-//				System.out.printf("[FIFO.DeliverThread] Waiting%n");
-				
 				List<Tuple3<Integer, Integer, String>> retrievedList = new LinkedList<>();
 				try
 				{
@@ -77,8 +75,6 @@ public class FIFO
 				}
 				pendingDeliverQueue.drainTo(retrievedList);
 				
-//				System.out.printf("[FIFO.DeliverThread] retrievedList: %s%n", retrievedList);
-				
 				// Pending queues that get changed and thus require a check for deliveries
 				Set<Integer> toCheckPendingQueueIdSet = new HashSet<>();
 				
@@ -87,14 +83,11 @@ public class FIFO
 					int hostId = tuple._1();
 					int msgIdx = tuple._2();
 					
-//					System.out.printf("[FIFO.DeliverThread] toCheckPendingQueueIdSet.add hostId: %s%n", hostId);
 					toCheckPendingQueueIdSet.add(hostId);
 					
 					PriorityBlockingQueue<Pair<Integer, String>> pendingQueue = pendingQueueMap.get(hostId);
 					pendingQueue.add(new Pair<>(msgIdx, tuple._3()));
 				}
-				
-//				System.out.printf("[FIFO.DeliverThread] toCheckPendingQueueIdSet: %s%n", toCheckPendingQueueIdSet);
 				
 				// All messages to be delivered by FIFO
 				List<String> toDeliverList = new ArrayList<>();
@@ -122,9 +115,6 @@ public class FIFO
 	
 	private void deliver(String msg)
 	{
-//		System.out.printf("[FIFO.deliver] added message to pendingDeliverQueue%n");
-//		System.out.printf("[deliver] msg: %s, broadcastingCount: %d%n", msg, broadcastingCount.get());
-		
 		String[] msgParts = msg.split(" ");
 		int hostId = Integer.parseInt(msgParts[0]);
 		int msgIdx = Integer.parseInt(msgParts[1]);
@@ -149,8 +139,6 @@ public class FIFO
 	
 	public void broadcast(String msg) throws InterruptedException
 	{
-//		System.out.printf("[broadcast] broadcastingCount: %d%n", broadcastingCount.get());
-		
 		windowLock.lock();
 		if (broadcastingCount.get() < 1)
 			windowCondition.await();
