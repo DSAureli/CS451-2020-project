@@ -65,7 +65,7 @@ public class PerfectLink
 		//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 		
 		long minRTO = 500; // EDIT (original: 1000)
-		long maxRTO = 10 * 1000; // EDIT (original: 60 * 1000)
+		long maxRTO = 30 * 1000; // EDIT (original: 60 * 1000)
 		
 		RTO = Math.min(maxRTO, Math.max(minRTO, RTO));
 		

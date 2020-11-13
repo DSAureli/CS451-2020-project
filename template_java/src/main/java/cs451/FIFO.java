@@ -1,6 +1,7 @@
 package cs451;
 
 import cs451.Helper.Pair;
+import cs451.Helper.Tuple3;
 import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;
@@ -8,13 +9,19 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 public class FIFO
 {
-	private final ConcurrentHashMap<Integer, PriorityBlockingQueue<Pair<Integer, String>>> pendingQueueMap; // <HostId, Queue<MsgIdx, Msg>>
+	private final int id;
+	
+	private final ConcurrentHashMap<Integer, PriorityBlockingQueue<Pair<Integer, String>>> pendingQueueMap; // <HostId, Queue<MsgIdx, Msg>> // TODO no need for concurrent data structure
 	private final ConcurrentHashMap<Integer, AtomicInteger> nextMsgIdxMap; // <HostId, MsgIdx>
 	
 	private final Thread deliverThread;
@@ -24,8 +31,9 @@ public class FIFO
 	
 	public FIFO(List<Host> hosts, int id, Consumer<List<String>> deliverCallback, int threadPoolSize) throws SocketException, UnknownHostException
 	{
-		pendingQueueMap = new ConcurrentHashMap<>();
-		nextMsgIdxMap = new ConcurrentHashMap<>();
+		this.id = id;
+		this.pendingQueueMap = new ConcurrentHashMap<>();
+		this.nextMsgIdxMap = new ConcurrentHashMap<>();
 		
 		for (Host host: hosts)
 		{
@@ -44,7 +52,7 @@ public class FIFO
 		this.deliverCallback = deliverCallback;
 	}
 	
-	private final BlockingQueue<String> pendingDeliverQueue = new PriorityBlockingQueue<>();
+	private final BlockingQueue<Tuple3<Integer, Integer, String>> pendingDeliverQueue = new LinkedBlockingQueue<>(); // <HostId, MsgIdx, Msg>
 	
 	private class DeliverThread implements Runnable
 	{
@@ -57,7 +65,7 @@ public class FIFO
 				
 //				System.out.printf("[FIFO.DeliverThread] Waiting%n");
 				
-				List<String> retrievedList = new LinkedList<>();
+				List<Tuple3<Integer, Integer, String>> retrievedList = new LinkedList<>();
 				try
 				{
 					retrievedList.add(pendingDeliverQueue.take());
@@ -74,17 +82,16 @@ public class FIFO
 				// Pending queues that get changed and thus require a check for deliveries
 				Set<Integer> toCheckPendingQueueIdSet = new HashSet<>();
 				
-				for (String msg: retrievedList)
+				for (Tuple3<Integer, Integer, String> tuple: retrievedList)
 				{
-					String[] msgParts = msg.split(" ");
-					int hostId = Integer.parseInt(msgParts[0]);
-					int msgIdx = Integer.parseInt(msgParts[1]);
+					int hostId = tuple._1();
+					int msgIdx = tuple._2();
 					
 //					System.out.printf("[FIFO.DeliverThread] toCheckPendingQueueIdSet.add hostId: %s%n", hostId);
 					toCheckPendingQueueIdSet.add(hostId);
 					
 					PriorityBlockingQueue<Pair<Integer, String>> pendingQueue = pendingQueueMap.get(hostId);
-					pendingQueue.add(new Pair<>(msgIdx, msg));
+					pendingQueue.add(new Pair<>(msgIdx, tuple._3()));
 				}
 				
 //				System.out.printf("[FIFO.DeliverThread] toCheckPendingQueueIdSet: %s%n", toCheckPendingQueueIdSet);
@@ -108,16 +115,48 @@ public class FIFO
 		}
 	}
 	
+	private static final int windowSize = 1000;
+	private final Lock windowLock = new ReentrantLock();
+	private final Condition windowCondition = windowLock.newCondition();
+	private final AtomicInteger broadcastingCount = new AtomicInteger(windowSize);
+	
 	private void deliver(String msg)
 	{
 //		System.out.printf("[FIFO.deliver] added message to pendingDeliverQueue%n");
-		pendingDeliverQueue.add(msg);
+//		System.out.printf("[deliver] msg: %s, broadcastingCount: %d%n", msg, broadcastingCount.get());
+		
+		String[] msgParts = msg.split(" ");
+		int hostId = Integer.parseInt(msgParts[0]);
+		int msgIdx = Integer.parseInt(msgParts[1]);
+		
+		try
+		{
+			pendingDeliverQueue.put(new Tuple3<>(hostId, msgIdx, msg));
+		}
+		catch (InterruptedException e)
+		{
+			e.printStackTrace();
+		}
+		
+		if (hostId == id)
+		{
+			windowLock.lock();
+			broadcastingCount.getAndIncrement();
+			windowCondition.signal();
+			windowLock.unlock();
+		}
 	}
 	
-	// TODO careful not to decrement current window size less than 0
-	
-	public void broadcast(String msg)
+	public void broadcast(String msg) throws InterruptedException
 	{
+//		System.out.printf("[broadcast] broadcastingCount: %d%n", broadcastingCount.get());
+		
+		windowLock.lock();
+		if (broadcastingCount.get() < 1)
+			windowCondition.await();
+		broadcastingCount.getAndDecrement();
+		windowLock.unlock();
+		
 		urb.broadcast(msg);
 	}
 	
