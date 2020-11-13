@@ -84,7 +84,7 @@ public class Main
 		}
 		
 		
-		// TODO [DEBUG]
+		// TODO [DEBUG] for perfect network (validate_perfect.py)
 		int toDeliverCount = parser.hosts().size() * msgCount;
 		AtomicInteger deliveredCount = new AtomicInteger();
 		long startTime = System.currentTimeMillis();
@@ -95,13 +95,14 @@ public class Main
 		fifo = new FIFO(parser.hosts(),
 		                parser.myId(),
 		                (messageList) -> {
-							messageList.forEach(msg -> {
+							for (String msg: messageList)
+			                {
 				                try
 				                {
 					                fileWriter.append(String.format("d %s%n", msg));
 					                System.out.printf("d %s%n", msg);
 					
-					                // TODO [DEBUG]
+					                // TODO [DEBUG] for perfect network (validate_perfect.py)
 					                if (deliveredCount.incrementAndGet() == toDeliverCount)
 						                System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
 				                }
@@ -109,7 +110,7 @@ public class Main
 				                {
 					                e.printStackTrace();
 				                }
-							});
+							}
 		                },
 		                threadPoolSize);
 		

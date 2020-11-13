@@ -57,8 +57,8 @@ public class PerfectLink
 	// Messages/ACKs still to be sent
 	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
 	
-	final Lock sendCoordinatorLock = new ReentrantLock();
-	final Condition sendCoordinatorCondition = sendCoordinatorLock.newCondition();
+	private final Lock sendCoordinatorLock = new ReentrantLock();
+	private final Condition sendCoordinatorCondition = sendCoordinatorLock.newCondition();
 	
 	private void setRTOData(int port, boolean firstRTT, double SRTT, double RTTVAR, long RTO)
 	{

@@ -1,6 +1,7 @@
 package cs451.Helper;
 
 import java.util.Objects;
+import java.util.StringJoiner;
 
 public class Pair<T1,T2>
 {
@@ -44,10 +45,10 @@ public class Pair<T1,T2>
 	@Override
 	public String toString()
 	{
-		return "Pair{" +
-			"_1=" + _1 +
-			", _2=" + _2 +
-			'}';
+		return new StringJoiner(", ", Pair.class.getSimpleName() + "[", "]")
+			.add("_1=" + _1)
+			.add("_2=" + _2)
+			.toString();
 	}
 }
 
