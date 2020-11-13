@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
 {
-	private static final int threadPoolSize = Math.min(1, (Runtime.getRuntime().availableProcessors() / 2) - 1);
+	private static final int threadPoolSize = Math.max(2, Runtime.getRuntime().availableProcessors() - 4) / 2;
 	
 	// BufferedWriter is thread-safe
 	private static BufferedWriter fileWriter;
@@ -70,6 +70,8 @@ public class Main
 		}
 		
 		
+		System.out.printf("threadPoolSize: %d%n", threadPoolSize);
+		
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		
 		int msgCount;
@@ -85,9 +87,9 @@ public class Main
 		
 		
 		// TODO [DEBUG] for perfect network (validate_perfect.py)
-		int toDeliverCount = parser.hosts().size() * msgCount;
-		AtomicInteger deliveredCount = new AtomicInteger();
-		long startTime = System.currentTimeMillis();
+//		int toDeliverCount = parser.hosts().size() * msgCount;
+//		AtomicInteger deliveredCount = new AtomicInteger();
+//		long startTime = System.currentTimeMillis();
 		
 		
 		fileWriter = new BufferedWriter(new FileWriter(parser.output()));
@@ -100,11 +102,11 @@ public class Main
 				                try
 				                {
 					                fileWriter.append(String.format("d %s%n", msg));
-					                System.out.printf("d %s%n", msg);
+//					                System.out.printf("d %s%n", msg);
 					
 					                // TODO [DEBUG] for perfect network (validate_perfect.py)
-					                if (deliveredCount.incrementAndGet() == toDeliverCount)
-						                System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
+//					                if (deliveredCount.incrementAndGet() == toDeliverCount)
+//						                System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
 				                }
 				                catch (IOException e)
 				                {
@@ -125,7 +127,7 @@ public class Main
 			{
 				fifo.broadcast(String.format("%d %d", parser.myId(), i));
 				fileWriter.append(String.format("b %s%n", i));
-				System.out.printf("b %s%n", i);
+//				System.out.printf("b %s%n", i);
 			}
 			catch (IOException e)
 			{
