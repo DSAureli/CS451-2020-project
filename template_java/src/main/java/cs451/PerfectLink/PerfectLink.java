@@ -25,6 +25,9 @@ public class PerfectLink
 	private final Thread sendCoordinatorThread;
 	private final Thread recvCoordinatorThread;
 	
+	//// Data for retransmission protocol [IETF RFC 6298] ////
+	private final ConcurrentHashMap<Integer, RTOData> rtoDataMap;
+	
 	public PerfectLink(int recvPort, Consumer<String> callback, ExecutorService recvThreadPool, ExecutorService sendThreadPool) throws SocketException
 	{
 		this.plRecvPort = recvPort;
@@ -39,6 +42,8 @@ public class PerfectLink
 		
 		this.recvCoordinatorThread = new Thread(new ReceiveCoordinatorThread(callback));
 		this.recvCoordinatorThread.start();
+		
+		this.rtoDataMap = new ConcurrentHashMap<>();
 	}
 	
 	private final AtomicInteger nextSeqNum = new AtomicInteger(0);
@@ -47,11 +52,26 @@ public class PerfectLink
 	// TODO discard messages sent too far in the past, so that the set can be "pruned" at fixed intervals
 	//      (send timestamp together with messages)
 	
-	// Messages still to be sent/acked
-	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getTimestamp));
+	// Messages/ACKs still to be sent
+	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
 	
 	final Lock sendCoordinatorLock = new ReentrantLock();
 	final Condition sendCoordinatorCondition = sendCoordinatorLock.newCondition();
+	
+	private void setRTOData(int port, boolean firstRTT, double SRTT, double RTTVAR, long RTO)
+	{
+		//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+		
+		long minRTO = 500; // EDIT (original: 1000)
+		long maxRTO = 10 * 1000; // EDIT (original: 60 * 1000)
+		
+		RTO = Math.min(maxRTO, Math.max(minRTO, RTO));
+		
+		////
+		
+//		System.out.printf("[RTO] %s: %s%n", port, new RTOData(firstRTT, SRTT, RTTVAR, RTO));
+		rtoDataMap.put(port, new RTOData(firstRTT, SRTT, RTTVAR, RTO));
+	}
 	
 	private void addRequestToSendQueue(PLRequest request)
 	{
@@ -74,7 +94,9 @@ public class PerfectLink
 				try
 				{
 					// take() is blocking
+//					System.out.printf("[PL.SendThread.run] BEF pendingSendQueue size : %d%n", pendingSendQueue.size());
 					request = pendingSendQueue.take();
+//					System.out.printf("[PL.SendThread.run] AFT pendingSendQueue size : %d%n", pendingSendQueue.size());
 				}
 				catch (InterruptedException e)
 				{
@@ -83,16 +105,31 @@ public class PerfectLink
 					return;
 				}
 				
-				if (request.getTimestamp() <= System.currentTimeMillis())
+				if (request.getSchedTimestamp() <= System.currentTimeMillis())
 				{
 					sendThreadPool.submit(new SendThread(request));
 					
 					// We always want to send ACKs and only once, so we don't re-insert it in the queue
-					if (request.getType() == PLMessage.PLMessageType.Normal && waitingACKSet.contains(request.getSeqNum()))
+					if (request.getType() == PLMessage.PLMessageType.Normal)
 					{
-						// Message hasn't been ACK'd yet, re-insert request in the queue with delay
-						// TODO exponential backoff
-						pendingSendQueue.add(new PLRequest(request, request.getTimestamp() + 10));
+						if (waitingACKSet.contains(request.getSeqNum()))
+						{
+							// Message hasn't been ACK'd yet, "back off the timer"
+							
+							//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+							
+							synchronized (PerfectLink.class)
+							{
+								RTOData rtoData = rtoDataMap.get(request.getPort());
+								long newRTO = 2 * rtoData.getRTO();
+								setRTOData(request.getPort(), rtoData.isFirstRTT(), rtoData.getSRTT(), rtoData.getRTTVAR(), newRTO);
+							}
+							
+							////
+							
+							// Re-insert request in the queue with delay
+							pendingSendQueue.add(new PLRequest(request, (request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO())));
+						}
 					}
 				}
 				else
@@ -107,7 +144,7 @@ public class PerfectLink
 						
 						// Wait for request timestamp or queue insertion signal
 						// await releases the lock!
-						sendCoordinatorCondition.awaitUntil(new Date(request.getTimestamp()));
+						sendCoordinatorCondition.awaitUntil(new Date(request.getSchedTimestamp()));
 						
 						// !!! AWAIT DOES NOT ALWAYS RELEASE THE LOCK YOU FUCKING JAVA !!!
 						sendCoordinatorLock.unlock();
@@ -134,9 +171,14 @@ public class PerfectLink
 
 		public void run()
 		{
-//			System.out.printf("Sending %s to :%d%n", request.toPLMessage(plRecvPort), request.getPort());
+			PLMessage msg = request.getType() == PLMessage.PLMessageType.Normal ?
+				request.toNormalPLMessage(plRecvPort, System.currentTimeMillis())
+				:
+				request.toACKPLMessage(plRecvPort);
 			
-			byte[] plMessageBytes = request.toPLMessage(plRecvPort).getBytes();
+//			System.out.printf("Sending %s to :%d%n", msg, request.getPort());
+			
+			byte[] plMessageBytes = msg.getBytes();
 			DatagramPacket plMessageDP = new DatagramPacket(plMessageBytes, plMessageBytes.length, request.getAddress(), request.getPort());
 			try {
 				sendDS.send(plMessageDP);
@@ -208,11 +250,50 @@ public class PerfectLink
 			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
 			{
 				waitingACKSet.remove(recvPLMessage.getSeqNum());
+				
+				synchronized (PerfectLink.class)
+				{
+					//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+					
+//					System.out.printf("[RTO] resetting port: %d%n", recvPLMessage.getSenderRecvPort());
+					RTOData rtoData = rtoDataMap.get(recvPLMessage.getSenderRecvPort());
+					long R = System.currentTimeMillis() - recvPLMessage.getSendTimestamp();
+					int G = 1;
+					int K = 4;
+					double alpha = 1 / 8.;
+					double beta = 1 / 4.;
+					
+					double newSRTT;
+					double newRTTVAR;
+					
+					if (rtoData.isFirstRTT())
+					{
+//						System.out.printf("[RTO] resetting (first RTT)%n");
+						newSRTT = R;
+						newRTTVAR = R / 2.;
+					}
+					else
+					{
+//						System.out.printf("[RTO] resetting (not first RTT)%n");
+						newRTTVAR = (1 - beta) * rtoData.getRTTVAR() + beta * Math.abs(rtoData.getSRTT() - R);
+						newSRTT = (1 - alpha) * rtoData.getSRTT() + alpha * R;
+					}
+					
+					long newRTO = (long) (newSRTT + Math.max(G, K * newRTTVAR));
+					
+					////
+					
+					setRTOData(recvPLMessage.getSenderRecvPort(), false, newSRTT, newRTTVAR, newRTO);
+				}
 			}
 			else // Normal
 			{
 				// Send ACK
-				addRequestToSendQueue(PLRequest.newACKRequest(System.currentTimeMillis(), recvPLMessage.getSeqNum(), senderAddress, recvPLMessage.getSenderRecvPort()));
+				addRequestToSendQueue(PLRequest.newACKRequest(System.currentTimeMillis(),
+				                                              recvPLMessage.getSeqNum(),
+				                                              senderAddress,
+				                                              recvPLMessage.getSenderRecvPort(),
+				                                              recvPLMessage.getSendTimestamp()));
 				
 				Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
 				boolean alreadyReceived;
@@ -234,6 +315,12 @@ public class PerfectLink
 	
 	public void send(InetAddress address, int port, String data)
 	{
+		synchronized (PerfectLink.class)
+		{
+			if (!rtoDataMap.containsKey(port))
+				setRTOData(port, true, 0., 0., 500); // EDIT (original: 1000)
+		}
+		
 		long seqNum = nextSeqNum.getAndIncrement();
 		waitingACKSet.add(seqNum);
 		addRequestToSendQueue(PLRequest.newNormalRequest(System.currentTimeMillis(), seqNum, address, port, data));

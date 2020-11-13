@@ -7,7 +7,6 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 public class UniformReliableBroadcast
@@ -75,6 +74,7 @@ public class UniformReliableBroadcast
 			
 		}
 		
+		// TODO only forward to processes not in ack[msg]?
 		if (toForward)
 		{
 			URBMessage fwdURBMessage = new URBMessage(id, msg);

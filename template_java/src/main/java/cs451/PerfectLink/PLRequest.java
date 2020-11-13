@@ -4,9 +4,10 @@ import java.net.InetAddress;
 import java.util.Objects;
 import java.util.StringJoiner;
 
+// TODO divide behaviours into two subclasses
 public class PLRequest
 {
-	private final long timestamp;
+	private final long schedTimestamp;
 	
 	private final long seqNum;
 	private final PLMessage.PLMessageType type;
@@ -14,10 +15,11 @@ public class PLRequest
 	private final int port;
 	
 	private String data;
+	private long msgSendTimestamp;
 	
-	public long getTimestamp()
+	public long getSchedTimestamp()
 	{
-		return timestamp;
+		return schedTimestamp;
 	}
 	
 	public long getSeqNum()
@@ -45,29 +47,30 @@ public class PLRequest
 		return data;
 	}
 	
-	private PLRequest(long timestamp, long seqNum, PLMessage.PLMessageType type, InetAddress address, int port, String data)
+	private PLRequest(long timestamp, long seqNum, PLMessage.PLMessageType type, InetAddress address, int port, String data, long msgSendTimestamp)
 	{
-		this.timestamp = timestamp;
+		this.schedTimestamp = timestamp;
 		this.seqNum = seqNum;
 		this.type = type;
 		this.address = address;
 		this.port = port;
 		this.data = data;
+		this.msgSendTimestamp = msgSendTimestamp;
 	}
 	
 	public static PLRequest newNormalRequest(long timestamp, long seqNum, InetAddress address, int port, String data)
 	{
-		return new PLRequest(timestamp, seqNum, PLMessage.PLMessageType.Normal, address, port, data);
+		return new PLRequest(timestamp, seqNum, PLMessage.PLMessageType.Normal, address, port, data, 0);
 	}
 	
-	public static PLRequest newACKRequest(long timestamp, long seqNum, InetAddress address, int port)
+	public static PLRequest newACKRequest(long timestamp, long seqNum, InetAddress address, int port, long msgSendTimestamp)
 	{
-		return new PLRequest(timestamp, seqNum, PLMessage.PLMessageType.ACK, address, port, null);
+		return new PLRequest(timestamp, seqNum, PLMessage.PLMessageType.ACK, address, port, null, msgSendTimestamp);
 	}
 
 	public PLRequest(PLRequest request, long newTimestamp)
 	{
-		this.timestamp = newTimestamp;
+		this.schedTimestamp = newTimestamp;
 		this.seqNum = request.seqNum;
 		this.type = request.type;
 		this.address = request.address;
@@ -75,9 +78,14 @@ public class PLRequest
 		this.data = request.data;
 	}
 	
-	public PLMessage toPLMessage(int recvPort)
+	public PLMessage toNormalPLMessage(int recvPort, long msgSendTimestamp)
 	{
-		return new PLMessage(type, seqNum, recvPort, data == null ? 0 : data.length(), data);
+		return new PLMessage(type, seqNum, msgSendTimestamp, recvPort, data == null ? 0 : data.length(), data);
+	}
+	
+	public PLMessage toACKPLMessage(int recvPort)
+	{
+		return new PLMessage(type, seqNum, msgSendTimestamp, recvPort, data == null ? 0 : data.length(), data);
 	}
 	
 	@Override
@@ -88,7 +96,7 @@ public class PLRequest
 		if (o == null || getClass() != o.getClass())
 			return false;
 		PLRequest plRequest = (PLRequest) o;
-		return timestamp == plRequest.timestamp &&
+		return schedTimestamp == plRequest.schedTimestamp &&
 			seqNum == plRequest.seqNum &&
 			port == plRequest.port &&
 			type == plRequest.type &&
@@ -99,14 +107,14 @@ public class PLRequest
 	@Override
 	public int hashCode()
 	{
-		return Objects.hash(timestamp, seqNum, type, address, port, data);
+		return Objects.hash(schedTimestamp, seqNum, type, address, port, data);
 	}
 	
 	@Override
 	public String toString()
 	{
 		return new StringJoiner(", ", PLRequest.class.getSimpleName() + "[", "]")
-			.add("timestamp=" + timestamp)
+			.add("timestamp=" + schedTimestamp)
 			.add("seqNum=" + seqNum)
 			.add("type=" + type)
 			.add("address=" + address)
