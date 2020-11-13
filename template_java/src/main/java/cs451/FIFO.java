@@ -1,6 +1,6 @@
 package cs451;
 
-import cs451.PerfectLink.Pair;
+import cs451.Helper.Pair;
 import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;

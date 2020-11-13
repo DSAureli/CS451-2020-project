@@ -1,8 +1,7 @@
-package cs451.PerfectLink;
+package cs451.Helper;
 
 import java.util.Objects;
 
-// TODO move up
 public class Pair<T1,T2>
 {
 	protected final T1 _1;

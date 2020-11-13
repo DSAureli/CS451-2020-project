@@ -1,5 +1,6 @@
 package cs451.UniformReliableBroadcast;
 
+import cs451.Helper.Pair;
 import cs451.Host;
 import cs451.PerfectLink.PerfectLink;
 
@@ -21,7 +22,7 @@ public class BestEffortBroadcast
 	
 	private final Consumer<String> deliverCallback;
 	
-	private final List<AbstractMap.SimpleEntry<InetAddress, Integer>> hostsInfo = new ArrayList<>();
+	private final List<Pair<InetAddress, Integer>> hostsInfo = new ArrayList<>();
 	private final PerfectLink perfectLink;
 	
 	public BestEffortBroadcast(Host self,
@@ -35,7 +36,7 @@ public class BestEffortBroadcast
 		
 		for (Host host: targetHosts)
 		{
-			hostsInfo.add(new AbstractMap.SimpleEntry<>(InetAddress.getByName(host.getIp()), host.getPort()));
+			hostsInfo.add(new Pair<>(InetAddress.getByName(host.getIp()), host.getPort()));
 		}
 		
 		this.perfectLink = new PerfectLink(self.getPort(), deliverCallback, recvThreadPool, sendThreadPool);
@@ -45,9 +46,9 @@ public class BestEffortBroadcast
 	{
 		recvThreadPool.submit(() -> deliverCallback.accept(msg));
 		
-		for (AbstractMap.SimpleEntry<InetAddress, Integer> hostInfo: hostsInfo)
+		for (Pair<InetAddress, Integer> hostInfo: hostsInfo)
 		{
-			perfectLink.send(hostInfo.getKey(), hostInfo.getValue(), msg);
+			perfectLink.send(hostInfo._1(), hostInfo._2(), msg);
 		}
 	}
 	
