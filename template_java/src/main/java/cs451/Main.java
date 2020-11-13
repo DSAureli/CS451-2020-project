@@ -2,10 +2,10 @@ package cs451;
 
 import cs451.Parser.Parser;
 
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.util.List;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
 {
@@ -71,6 +71,25 @@ public class Main
 		
 		
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
+		
+		int msgCount;
+		if (parser.hasConfig())
+		{
+			BufferedReader fileReader = Files.newBufferedReader(Paths.get(parser.config()));
+			msgCount = Integer.parseInt(fileReader.readLine());
+		}
+		else
+		{
+			msgCount = 100;
+		}
+		
+		
+		// TODO [DEBUG]
+		int toDeliverCount = parser.hosts().size() * msgCount;
+		AtomicInteger deliveredCount = new AtomicInteger();
+		long startTime = System.currentTimeMillis();
+		
+		
 		fileWriter = new BufferedWriter(new FileWriter(parser.output()));
 		
 		fifo = new FIFO(parser.hosts(),
@@ -81,6 +100,10 @@ public class Main
 				                {
 					                fileWriter.append(String.format("d %s%n", msg));
 					                System.out.printf("d %s%n", msg);
+					
+					                // TODO [DEBUG]
+					                if (deliveredCount.incrementAndGet() == toDeliverCount)
+						                System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
 				                }
 				                catch (IOException e)
 				                {
@@ -95,8 +118,6 @@ public class Main
 		
 		System.out.println("Broadcasting messages...");
 		
-		// TODO count type?
-		int msgCount = 5;
 		for (int i = 1; i <= msgCount; i++)
 		{
 			try
