@@ -16,6 +16,8 @@ from enum import Enum
 
 from collections import defaultdict, OrderedDict
 
+from typing import Dict, Set, Tuple
+
 
 BARRIER_IP = 'localhost'
 BARRIER_PORT = 10000
@@ -128,7 +130,7 @@ class AtomicSaturatedCounter:
                 return False
 
 class Validation:
-    def __init__(self, processes, messages, outputDir):
+    def __init__(self, processes: int, messages: int, outputDir: str):
         self.processes = processes
         self.messages = messages
         self.outputDirPath = os.path.abspath(outputDir)
@@ -202,15 +204,139 @@ class FifoBroadcastValidation(Validation):
         return True
 
 class LCausalBroadcastValidation(Validation):
-    def __init__(self, processes, messages, outputDir, extraParameter):
-        super().__init__(processes, messages, outputDir)
-        # Use the `extraParameter` to pass any information you think is relevant
+	def __init__(self, processes: int, messages: int, outputDir: str, extraParams: Dict[str, ]):
+		super().__init__(processes, messages, outputDir)
+		# Use the `extraParameter` to pass any information you think is relevant
+		
+		self.proc_id_range = range(1, processes + 1)
+		self.max_dep_n: int = extraParams.get("max_dep_n", processes - 1)
+		self.ex_config: str = extraParams.get("ex_config", None)
+		
+		self.host_lc_dep: Dict[int, Set[int]] = {} # host -> {hosts_dep}
+		self.msg_lc_dep: Dict[Tuple[int, int], Dict[int, int]] = {} # (host, msg) -> {host_dep, msg_dep}
 
-    def generateConfig(self):
-        raise NotImplementedError()
+	def retrieve_dep_relations(self, filename):
+		with open(filename) as config_file:
+			for line_n, line in enumerate(config_file):
+				if line_n == 0:
+					continue
+				tokens = line.split()
+				self.host_lc_dep[int(tokens[0])] = set(int(token) for token in tokens[1:])
 
-    def checkProcess(self, pid):
-        raise NotImplementedError()
+	def generateConfig(self):
+		# hosts file
+		
+		hosts = tempfile.NamedTemporaryFile(mode='w')
+		
+		for proc_id in self.proc_id_range:
+			hosts.write(f"{proc_id} localhost {PROCESSES_BASE_IP + proc_id}\n")
+			
+		hosts.flush()
+		
+		# config file
+		
+		if self.ex_config:
+			config = open(self.ex_config)
+		else:
+			config = tempfile.NamedTemporaryFile(mode='w')
+			config.write("{}\n".format(self.messages))
+			
+			for proc_id in self.proc_id_range:
+				dep_n = random.randint(0, self.max_dep_n) # inclusive
+				dep_list = random.sample([id for id in self.proc_id_range if id != proc_id], dep_n) # choice without replacement
+				dep_str = " ".join((str(dep) for dep in dep_list))
+				config_line = f"{proc_id} {dep_str}"
+				config.write(f"{config_line}\n")
+		
+			config.flush()
+		
+		self.retrieve_dep_relations(config.name)
+		print(f"[generateConfig] host_lc_dep: {self.host_lc_dep}")
+		
+		return (hosts, config)
+
+	def check_fifo(self, pid):
+		# check FIFO and build dependencies info #
+		out_path = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
+		out_filename = os.path.basename(out_path)
+		
+		# FIFO
+		b_idx = 1
+		d_idx_dict = defaultdict(lambda : int(1))
+		# LCausal
+		last_deliver: Dict[int, int] = {}
+		
+		with open(out_path) as out_file:
+			for line_n, line in enumerate(out_file):
+				tokens = line.split()
+				
+				if tokens[0] == 'b':
+					msg = int(tokens[1])
+					# FIFO
+					if msg != b_idx:
+						print(f"File {out_filename}, Line {line_n}: Messages broadcast out of order. Expected message {b_idx} but broadcast message {msg}")
+						return False
+					b_idx += 1
+					# LCausal
+					self.msg_lc_dep[(pid, msg)] = {host: last_deliver[host] for host in self.host_lc_dep[pid] if host in last_deliver}
+					
+				elif tokens[0] == 'd':
+					snd = int(tokens[1])
+					msg = int(tokens[2])
+					# FIFO
+					if msg != d_idx_dict[snd]:
+						print(f"File {out_filename}, Line {line_n}: Message delivered out of order. Expected message {d_idx_dict[snd]}, but delivered message {msg}")
+						return False
+					else:
+						d_idx_dict[snd] = msg + 1
+					# LCausal
+					if snd in self.host_lc_dep[snd]:
+						last_deliver[snd] = msg
+				
+				else:
+					print(f"File {out_filename}, Line {line_n}: Unexpected event token '{tokens[0]}'")
+					return False
+		
+		print(f"[check_fifo] msg_lc_dep: {self.msg_lc_dep}")
+		
+	def check_lcausal(self, pid):
+		out_path = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
+		out_filename = os.path.basename(out_path)
+		
+		last_deliver: Dict[int, int] = {}
+		
+		with open(out_path) as out_file:
+			for line_n, line in enumerate(out_file):
+				tokens = line.split()
+					
+				if tokens[0] == 'd':
+					snd = int(tokens[1])
+					msg = int(tokens[2])
+					
+					msg_dep_dict = self.msg_lc_dep[(snd, msg)]
+					if not all(last_deliver[snd] == msg_dep_dict[snd] for snd in msg_dep_dict):
+						return False
+					
+					last_deliver[snd] = msg
+
+	def checkAll(self, continueOnError=True):
+		ok = True
+		
+		for pid in self.proc_id_range:
+			ret = self.check_fifo(pid)
+			if not ret:
+				ok = False
+				if not continueOnError:
+					return False
+		
+		for pid in self.proc_id_range:
+			ret = self.check_lcausal(pid)
+			if not ret:
+				ok = False
+				if not continueOnError:
+					return False
+
+		return ok
 
 class StressTest:
     def __init__(self, procs, concurrency, attempts, attemptsRatio):
@@ -339,7 +465,7 @@ def startProcesses(processes, runscript, hostsFilePath, configFilePath, outputDi
 
     return procs
 
-def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
+def main(processes, messages, runscript, broadcastType, logsDir, testConfig, extraParams):
     # Set tc for loopback
     tc = TC(testConfig['TC'])
     print(tc)
@@ -363,7 +489,7 @@ def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
     else:
         # Use the last argument (now it's `None` since it's not being use) to
         # pass any information that you think is relevant
-        validation = LCausalBroadcastValidation(processes, messages, logsDir, None)
+        validation = LCausalBroadcastValidation(processes, messages, logsDir, extraParams)
 
     hostsFile, configFile = validation.generateConfig()
 
@@ -424,71 +550,150 @@ def main(processes, messages, runscript, broadcastType, logsDir, testConfig):
                 p.kill()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+	parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "-r",
-        "--runscript",
-        required=True,
-        dest="runscript",
-        help="Path to run.sh",
-    )
+	parser.add_argument(
+		"-r",
+		"--runscript",
+		required=True,
+		dest="runscript",
+		help="Path to run.sh",
+	)
 
-    parser.add_argument(
-        "-b",
-        "--broadcast",
-        choices=["fifo", "lcausal"],
-        required=True,
-        dest="broadcastType",
-        help="Which broadcast implementation to test",
-    )
+	parser.add_argument(
+		"-b",
+		"--broadcast",
+		choices=["fifo", "lcausal"],
+		required=True,
+		dest="broadcastType",
+		help="Which broadcast implementation to test",
+	)
 
-    parser.add_argument(
-        "-l",
-        "--logs",
-        required=True,
-        dest="logsDir",
-        help="Directory to store stdout, stderr and outputs generated by the processes",
-    )
+	parser.add_argument(
+		"-l",
+		"--logs",
+		required=True,
+		dest="logsDir",
+		help="Directory to store stdout, stderr and outputs generated by the processes",
+	)
 
-    parser.add_argument(
-        "-p",
-        "--processes",
-        required=True,
-        type=int,
-        dest="processes",
-        help="Number of processes that broadcast",
-    )
+	parser.add_argument(
+		"-p",
+		"--processes",
+		required=True,
+		type=int,
+		dest="processes",
+		help="Number of processes that broadcast",
+	)
 
-    parser.add_argument(
-        "-m",
-        "--messages",
-        required=True,
-        type=int,
-        dest="messages",
-        help="Maximum number (because it can crash) of messages that each process can broadcast",
-    )
+	parser.add_argument(
+		"-m",
+		"--messages",
+		required=True,
+		type=int,
+		dest="messages",
+		help="Maximum number (because it can crash) of messages that each process can broadcast",
+	)
 
-    results = parser.parse_args()
+	# extra arguments for LCausal
+	
+	parser.add_argument(
+		"-d",
+		"--dependencies",
+		required=False,
+		type=int,
+		dest="dependencies",
+		help="[LCausal] Maximum dependencies each host can have. Must be less than the number of processes",
+	)
+	
+	parser.add_argument(
+		"-c",
+		"--config",
+		required=False,
+		dest="config",
+		help="[LCausal] Path to config to use instead of generating one",
+	)
+	
+	# debug arguments
+	
+	parser.add_argument(
+		"-n",
+		"--network",
+		required=False,
+		default="default",
+		dest="network",
+		help="network preset: 'default', 'perfect', 'killer'",
+	)
 
-    testConfig = {
-        # Network configuration using the tc command
-        'TC': {
-            'delay': ('200ms', '50ms'),
-            'loss': ('10%', '25%'),
-            'reordering': ('25%', '50%')
-        },
+	results = parser.parse_args()
 
-        # StressTest configuration
-        'ST': {
-            'concurrency' : 8, # How many threads are interferring with the running processes
-            'attempts' : 8, # How many interferring attempts each threads does
-            'attemptsDistribution' : { # Probability with which an interferring thread will
-                'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
-                'CONT': 0.48,
-                'TERM':0.04
-            }
-        }
-    }
+	if results.network == "perfect":
+		testConfig = {
+			# Network configuration using the tc command
+			'TC': {
+				'delay': ('0ms', '0ms'),
+				'loss': ('0%', '0%'),
+				'reordering': ('0%', '0%')
+			},
 
-    main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, testConfig)
+			# StressTest configuration
+			'ST': {
+				'concurrency' : 0, # How many threads are interferring with the running processes
+				'attempts' : 0, # How many interferring attempts each threads does
+				'attemptsDistribution' : { # Probability with which an interferring thread will
+					'STOP': 0,          # select an interferring action (make sure they add up to 1)
+					'CONT': 0,
+					'TERM':0
+				}
+			}
+		}
+	elif results.network == "killer":
+		testConfig = {
+			# Network configuration using the tc command
+			'TC': {
+				'delay': ('200ms', '50ms'),
+				'loss': ('10%', '25%'),
+				'reordering': ('25%', '50%')
+			},
+
+			# StressTest configuration
+			'ST': {
+				'concurrency' : 8, # How many threads are interferring with the running processes
+				'attempts' : 8, # How many interferring attempts each threads does
+				'attemptsDistribution' : { # Probability with which an interferring thread will
+					'STOP': 0.35,          # select an interferring action (make sure they add up to 1)
+					'CONT': 0.35,
+					'TERM':0.30
+				}
+			}
+		}
+	else:
+		testConfig = {
+			# Network configuration using the tc command
+			'TC': {
+				'delay': ('200ms', '50ms'),
+				'loss': ('10%', '25%'),
+				'reordering': ('25%', '50%')
+			},
+
+			# StressTest configuration
+			'ST': {
+				'concurrency' : 8, # How many threads are interferring with the running processes
+				'attempts' : 8, # How many interferring attempts each threads does
+				'attemptsDistribution' : { # Probability with which an interferring thread will
+					'STOP': 0.48,          # select an interferring action (make sure they add up to 1)
+					'CONT': 0.48,
+					'TERM':0.04
+				}
+			}
+		}
+	
+	extraParams = {}
+	
+	if "dependencies" in vars(results):
+		extraParams["max_dep_n"] = results.dependencies
+		
+	if "config" in vars(results):
+		extraParams["ex_config"] = results.dependencies
+
+	main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, testConfig, extraParams)
