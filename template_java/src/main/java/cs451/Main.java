@@ -1,11 +1,17 @@
 package cs451;
 
+import cs451.LCausalBroadcast.FIFO;
+import cs451.LCausalBroadcast.LCausalBroadcast;
+import cs451.LCausalBroadcast.Message;
 import cs451.Parser.Parser;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class Main
 {
@@ -14,13 +20,13 @@ public class Main
 	// BufferedWriter is thread-safe
 	private static BufferedWriter fileWriter;
 	
-	private static FIFO fifo;
+	private static LCausalBroadcast lCausalBroadcast;
 	
 	private static void handleSignal() throws IOException
 	{
 		// immediately stop network packet processing
 		System.out.println("Immediately stopping network packet processing.");
-		fifo.close();
+		lCausalBroadcast.close();
 		
 		// write/flush output file if necessary
 		System.out.println("Writing output.");
@@ -70,20 +76,31 @@ public class Main
 		}
 		
 		
+		// TODO [DEBUG]
 		System.out.printf("threadPoolSize: %d%n", threadPoolSize);
 		
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		
-		int msgCount;
+		int msgCount = 100;
+		Map<Integer, Set<Integer>> hostDependencyMap = new HashMap<>();
+		
 		if (parser.hasConfig())
 		{
+			System.out.printf("parser.hasConfig()%n");
 			BufferedReader fileReader = Files.newBufferedReader(Paths.get(parser.config()));
 			msgCount = Integer.parseInt(fileReader.readLine());
+			
+			for (int lineNumber = 1; lineNumber <= parser.hosts().size(); lineNumber++)
+			{
+				hostDependencyMap.put(lineNumber,
+				                  Arrays.stream(fileReader.readLine().split(" "))
+					                  .map(Integer::parseInt)
+					                  .collect(Collectors.toSet()));
+			}
 		}
-		else
-		{
-			msgCount = 100;
-		}
+		
+		// TODO [DEBUG]
+		System.out.printf("dependencyMap: %s%n", hostDependencyMap);
 		
 		
 		// TODO [DEBUG] for perfect network (validate_perfect.py)
@@ -94,45 +111,53 @@ public class Main
 		
 		fileWriter = new BufferedWriter(new FileWriter(parser.output()));
 		
-		fifo = new FIFO(parser.hosts(),
-		                parser.myId(),
-		                (messageList) -> {
-							for (String msg: messageList)
-			                {
-				                try
-				                {
-					                fileWriter.append(String.format("d %s%n", msg));
-//					                System.out.printf("d %s%n", msg);
+		Consumer<Message> broadcastCallback = msg -> {
+			try
+			{
+				String out = String.format("b %s%n", msg.getIdx());
+				fileWriter.append(out);
+				System.out.print(out);
+			}
+			catch (IOException e)
+			{
+				e.printStackTrace();
+			}
+		};
+		
+		Consumer<List<Message>> deliverCallback = msgList -> {
+			for (Message msg: msgList)
+			{
+				try
+				{
+					String out = String.format("d %s%n", msg);
+					fileWriter.append(out);
+					System.out.print(out);
 					
-					                // TODO [DEBUG] for perfect network (validate_perfect.py)
-//					                if (deliveredCount.incrementAndGet() == toDeliverCount)
-//						                System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
-				                }
-				                catch (IOException e)
-				                {
-					                e.printStackTrace();
-				                }
-							}
-		                },
-		                threadPoolSize);
+					// TODO [DEBUG] for perfect network (validate_perfect.py)
+//					if (deliveredCount.incrementAndGet() == toDeliverCount)
+//						System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
+				}
+				catch (IOException e)
+				{
+					e.printStackTrace();
+				}
+			}
+		};
+		
+		lCausalBroadcast = new LCausalBroadcast(parser.myId(), parser.hosts(), hostDependencyMap,
+		                                        broadcastCallback, deliverCallback, threadPoolSize);
 		
 		System.out.println("Waiting for all processes for finish initialization");
 		coordinator.waitOnBarrier();
 		
 		System.out.println("Broadcasting messages...");
 		
-		for (int i = 1; i <= msgCount; i++)
+		Random random = new Random();
+		for (int it = 1; it <= msgCount; it++)
 		{
-			try
-			{
-				fifo.broadcast(String.format("%d %d", parser.myId(), i));
-				fileWriter.append(String.format("b %s%n", i));
-//				System.out.printf("b %s%n", i);
-			}
-			catch (IOException e)
-			{
-				e.printStackTrace();
-			}
+			Thread.sleep(random.nextInt(10));
+			
+			lCausalBroadcast.broadcast(new Message(parser.myId(), it));
 		}
 		
 		////

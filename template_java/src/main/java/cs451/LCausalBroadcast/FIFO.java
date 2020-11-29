@@ -1,7 +1,8 @@
-package cs451;
+package cs451.LCausalBroadcast;
 
 import cs451.Helper.Pair;
 import cs451.Helper.Tuple3;
+import cs451.Host;
 import cs451.UniformReliableBroadcast.UniformReliableBroadcast;
 
 import java.net.SocketException;
