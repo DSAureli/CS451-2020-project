@@ -204,13 +204,13 @@ class FifoBroadcastValidation(Validation):
         return True
 
 class LCausalBroadcastValidation(Validation):
-	def __init__(self, processes: int, messages: int, outputDir: str, extraParams: Dict[str, ]):
+	def __init__(self, processes: int, messages: int, outputDir: str, extraParams: Dict[str, object]):
 		super().__init__(processes, messages, outputDir)
 		# Use the `extraParameter` to pass any information you think is relevant
 		
 		self.proc_id_range = range(1, processes + 1)
-		self.max_dep_n: int = extraParams.get("max_dep_n", processes - 1)
-		self.ex_config: str = extraParams.get("ex_config", None)
+		self.max_dep_n: int = extraParams["max_dep_n"] if extraParams["max_dep_n"] else processes - 1
+		self.ex_config: str = extraParams["ex_config"]
 		
 		self.host_lc_dep: Dict[int, Set[int]] = {} # host -> {hosts_dep}
 		self.msg_lc_dep: Dict[Tuple[int, int], Dict[int, int]] = {} # (host, msg) -> {host_dep, msg_dep}
@@ -221,9 +221,12 @@ class LCausalBroadcastValidation(Validation):
 				if line_n == 0:
 					continue
 				tokens = line.split()
-				self.host_lc_dep[int(tokens[0])] = set(int(token) for token in tokens[1:])
+				self.host_lc_dep[line_n] = set(int(token) for token in tokens)
+		print(f"[retrieve_dep_relations] host_lc_dep: {self.host_lc_dep}")
 
 	def generateConfig(self):
+		print("[generateConfig]")
+		
 		# hosts file
 		
 		hosts = tempfile.NamedTemporaryFile(mode='w')
@@ -251,20 +254,17 @@ class LCausalBroadcastValidation(Validation):
 			config.flush()
 		
 		self.retrieve_dep_relations(config.name)
-		print(f"[generateConfig] host_lc_dep: {self.host_lc_dep}")
-		
 		return (hosts, config)
 
-	def check_fifo(self, pid):
-		# check FIFO and build dependencies info #
+	def build_dep_info(self, pid):
+		# build dependencies info #
+		print(f"[build_dep_info] host_lc_dep: {self.host_lc_dep}")
+		
 		out_path = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
 		out_filename = os.path.basename(out_path)
 		
-		# FIFO
-		b_idx = 1
-		d_idx_dict = defaultdict(lambda : int(1))
-		# LCausal
-		last_deliver: Dict[int, int] = {}
+		b_idx = 0
+		d_idx: Dict[int, int] = {}
 		
 		with open(out_path) as out_file:
 			for line_n, line in enumerate(out_file):
@@ -272,33 +272,27 @@ class LCausalBroadcastValidation(Validation):
 				
 				if tokens[0] == 'b':
 					msg = int(tokens[1])
-					# FIFO
-					if msg != b_idx:
-						print(f"File {out_filename}, Line {line_n}: Messages broadcast out of order. Expected message {b_idx} but broadcast message {msg}")
-						return False
+					print(f"b {tokens[1]}")
+					msg_lc_dep_dict = d_idx.copy()
+					if (msg > 1):
+						msg_lc_dep_dict[pid] = b_idx
+					self.msg_lc_dep[(pid, msg)] = msg_lc_dep_dict
 					b_idx += 1
-					# LCausal
-					self.msg_lc_dep[(pid, msg)] = {host: last_deliver[host] for host in self.host_lc_dep[pid] if host in last_deliver}
-					
+				
 				elif tokens[0] == 'd':
 					snd = int(tokens[1])
 					msg = int(tokens[2])
-					# FIFO
-					if msg != d_idx_dict[snd]:
-						print(f"File {out_filename}, Line {line_n}: Message delivered out of order. Expected message {d_idx_dict[snd]}, but delivered message {msg}")
-						return False
-					else:
-						d_idx_dict[snd] = msg + 1
-					# LCausal
-					if snd in self.host_lc_dep[snd]:
-						last_deliver[snd] = msg
+					print(f"d {tokens[1]} {tokens[2]}")
+					if snd != pid and snd in self.host_lc_dep[pid]:
+						d_idx[snd] = msg
 				
 				else:
 					print(f"File {out_filename}, Line {line_n}: Unexpected event token '{tokens[0]}'")
 					return False
 		
-		print(f"[check_fifo] msg_lc_dep: {self.msg_lc_dep}")
-		
+		print(f"[build_dep_info] msg_lc_dep: {self.msg_lc_dep}")
+		return True
+	
 	def check_lcausal(self, pid):
 		out_path = os.path.join(self.outputDirPath, 'proc{:02d}.output'.format(pid))
 		out_filename = os.path.basename(out_path)
@@ -314,16 +308,20 @@ class LCausalBroadcastValidation(Validation):
 					msg = int(tokens[2])
 					
 					msg_dep_dict = self.msg_lc_dep[(snd, msg)]
-					if not all(last_deliver[snd] == msg_dep_dict[snd] for snd in msg_dep_dict):
+					if not all(last_deliver[snd] >= msg_dep_dict[snd] for snd in msg_dep_dict):
+						print(f"File {out_filename}, Line {line_n}: Causality violated. Missing previous delivery of '{msg_dep_dict[snd]}'")
 						return False
 					
 					last_deliver[snd] = msg
+		
+		return True
 
 	def checkAll(self, continueOnError=True):
 		ok = True
 		
 		for pid in self.proc_id_range:
-			ret = self.check_fifo(pid)
+			# ret = self.check_fifo(pid)
+			ret = self.build_dep_info(pid)
 			if not ret:
 				ok = False
 				if not continueOnError:
@@ -690,10 +688,7 @@ if __name__ == "__main__":
 	
 	extraParams = {}
 	
-	if "dependencies" in vars(results):
-		extraParams["max_dep_n"] = results.dependencies
-		
-	if "config" in vars(results):
-		extraParams["ex_config"] = results.dependencies
+	extraParams["max_dep_n"] = results.dependencies
+	extraParams["ex_config"] = results.config
 
 	main(results.processes, results.messages, results.runscript, results.broadcastType, results.logsDir, testConfig, extraParams)
