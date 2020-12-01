@@ -34,27 +34,23 @@ public class URBMessage
 	public static URBMessage fromString(String str) throws NotSerializableException
 	{
 		String[] parts = str.split(String.valueOf(Constants.CC.STX), 2);
-		if (parts.length != 2)
+		if (parts.length < 2)
 			error("missing STX");
 		
-		if (!parts[0].equals(String.valueOf(Constants.CC.SOH)))
+		String[] headerParts = parts[0].split(String.valueOf(Constants.CC.SOH), 2);
+		if (headerParts.length != 2)
 			error("malformed header");
 		
-		String[] contentParts = parts[1].split(String.valueOf(Constants.CC.RS), 2);
-		if (contentParts.length != 2)
-			error("malformed content");
-		
-		return new URBMessage(Integer.parseInt(contentParts[0]), contentParts[1]);
+		return new URBMessage(Integer.parseInt(headerParts[1]), parts[1]);
 	}
 	
 	@Override
 	public String toString()
 	{
-		return String.format("%c%c%d%c%s",
+		return String.format("%c%d%c%s",
 		                     Constants.CC.SOH,
-		                     Constants.CC.STX,
 		                     sender,
-		                     Constants.CC.RS,
+		                     Constants.CC.STX,
 		                     message);
 	}
 	
