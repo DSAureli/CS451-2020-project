@@ -73,9 +73,6 @@ public class LCausalBroadcast
 	
 	private void deliver(String msg)
 	{
-		// TODO de-synchronize
-		lock.lock();
-		
 		LCMessage lcMessage;
 		try
 		{
@@ -84,9 +81,11 @@ public class LCausalBroadcast
 		catch (NotSerializableException e)
 		{
 			e.printStackTrace();
-			lock.unlock();
 			return;
 		}
+		
+		// TODO de-synchronize
+		lock.lock();
 		
 		System.out.printf("=== lcMessage: %s%n", lcMessage);
 		pendingMsgQueueMap.get(lcMessage.getMessage().getHost()).add(lcMessage);

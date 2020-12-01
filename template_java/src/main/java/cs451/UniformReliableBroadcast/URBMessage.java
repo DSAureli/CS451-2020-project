@@ -38,7 +38,7 @@ public class URBMessage
 			error("missing STX");
 		
 		String[] headerParts = parts[0].split(String.valueOf(Constants.CC.SOH), 2);
-		if (headerParts.length != 2)
+		if (headerParts.length != 2 || !headerParts[0].equals(""))
 			error("malformed header");
 		
 		return new URBMessage(Integer.parseInt(headerParts[1]), parts[1]);
