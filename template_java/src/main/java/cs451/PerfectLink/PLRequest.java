@@ -76,6 +76,7 @@ public class PLRequest
 		this.address = request.address;
 		this.port = request.port;
 		this.data = request.data;
+		this.msgSendTimestamp = request.msgSendTimestamp;
 	}
 	
 	public PLMessage toNormalPLMessage(int recvPort, long msgSendTimestamp)
