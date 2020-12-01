@@ -69,10 +69,16 @@ public class Main
 		System.out.println("Barrier: " + parser.barrierIp() + ":" + parser.barrierPort());
 		System.out.println("Signal: " + parser.signalIp() + ":" + parser.signalPort());
 		System.out.println("Output: " + parser.output());
+		
 		// if config is defined; always check before parser.config()
 		if (parser.hasConfig())
 		{
 			System.out.println("Config: " + parser.config());
+		}
+		else
+		{
+			System.out.println("Config is missing! Aborting...");
+			System.exit(1);
 		}
 		
 		
@@ -81,22 +87,18 @@ public class Main
 		
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		
-		int msgCount = 100;
+		int msgCount;
 		Map<Integer, Set<Integer>> hostDependencyMap = new HashMap<>();
+
+		BufferedReader fileReader = Files.newBufferedReader(Paths.get(parser.config()));
+		msgCount = Integer.parseInt(fileReader.readLine());
 		
-		if (parser.hasConfig())
+		for (int lineNumber = 1; lineNumber <= parser.hosts().size(); lineNumber++)
 		{
-			System.out.printf("parser.hasConfig()%n");
-			BufferedReader fileReader = Files.newBufferedReader(Paths.get(parser.config()));
-			msgCount = Integer.parseInt(fileReader.readLine());
-			
-			for (int lineNumber = 1; lineNumber <= parser.hosts().size(); lineNumber++)
-			{
-				hostDependencyMap.put(lineNumber,
-				                  Arrays.stream(fileReader.readLine().split(" "))
-					                  .map(Integer::parseInt)
-					                  .collect(Collectors.toSet()));
-			}
+			hostDependencyMap.put(lineNumber,
+			                  Arrays.stream(fileReader.readLine().split(" "))
+				                  .map(Integer::parseInt)
+				                  .collect(Collectors.toSet()));
 		}
 		
 		// TODO [DEBUG]
