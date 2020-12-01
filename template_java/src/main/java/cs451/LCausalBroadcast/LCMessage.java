@@ -4,6 +4,7 @@ import java.io.NotSerializableException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class LCMessage
@@ -34,7 +35,7 @@ public class LCMessage
 	
 	public static LCMessage fromString(String str) throws NotSerializableException
 	{
-		String[] parts = str.split("\\|");
+		String[] parts = str.split(Pattern.quote("|"));
 		if (parts.length != 2)
 			error("missing |");
 		

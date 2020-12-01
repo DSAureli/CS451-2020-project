@@ -7,6 +7,8 @@ import java.io.NotSerializableException;
 import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -14,7 +16,9 @@ import java.util.stream.Collectors;
 
 public class LCausalBroadcast
 {
-	Lock lock = new ReentrantLock();
+	private final Lock lcLock = new ReentrantLock();
+	private final BlockingQueue<LCMessage> pendingDeliverQueue = new LinkedBlockingQueue<>();
+	private final Thread deliverThread;
 	
 	private final int id;
 	private final Set<Integer> hostDependencySet;
@@ -69,6 +73,76 @@ public class LCausalBroadcast
 		targetHosts.remove(selfHost);
 		
 		this.urb = new UniformReliableBroadcast(selfHost, targetHosts, this::deliver, threadPoolSize);
+		
+		this.deliverThread = new Thread(new DeliverThread());
+		this.deliverThread.start();
+	}
+	
+	private class DeliverThread implements Runnable
+	{
+		@Override
+		public void run()
+		{
+			while (!Thread.interrupted())
+			{
+				// Retrieve all pending deliveries, blocking if none available
+				
+				List<LCMessage> retrievedList = new LinkedList<>();
+				try
+				{
+					retrievedList.add(pendingDeliverQueue.take());
+				}
+				catch (InterruptedException e)
+				{
+					e.printStackTrace();
+					Thread.currentThread().interrupt();
+				}
+				pendingDeliverQueue.drainTo(retrievedList);
+				
+				lcLock.lock();
+				
+				// List of messages to deliver in batch
+				List<Message> deliveringMsgList = new LinkedList<>();
+				
+				// Id's of hosts which pending queue has to be checked for possible deliveries, as they are dependant to a
+				// host whose a message was recently delivered
+				Queue<Integer> toCheckPendingQueueIdQueue = new LinkedList<>();
+				
+				for (LCMessage lcMessage : retrievedList)
+				{
+					pendingMsgQueueMap.get(lcMessage.getMessage().getHost()).add(lcMessage);
+					toCheckPendingQueueIdQueue.add(lcMessage.getMessage().getHost());
+				}
+				
+				while (!toCheckPendingQueueIdQueue.isEmpty())
+				{
+					int toCheckQueueId = toCheckPendingQueueIdQueue.poll();
+					System.out.printf("=== toCheckQueueId: %s%n", toCheckQueueId);
+					
+					// No need to loop over the pending queues, just add the inverse relation to the queue (self host is included!)
+					LCMessage toCheckLCMsg = pendingMsgQueueMap.get(toCheckQueueId).peek();
+					boolean canDeliver = toCheckLCMsg != null &&
+						toCheckLCMsg.getDependenciesMap().entrySet().stream()
+							.allMatch(entry -> entry.getValue() <= lastDeliveredIdxMap.get(entry.getKey()));
+					
+					System.out.printf("=== toCheckLCMsg: %s%n", toCheckLCMsg);
+					System.out.printf("=== canDeliver: %s%n", canDeliver);
+					
+					if (canDeliver)
+					{
+						Message deliveringMsg = pendingMsgQueueMap.get(toCheckQueueId).poll().getMessage();
+						deliveringMsgList.add(deliveringMsg);
+						lastDeliveredIdxMap.put(deliveringMsg.getHost(), deliveringMsg.getIdx());
+						toCheckPendingQueueIdQueue.addAll(hostInfluenceMap.get(deliveringMsg.getHost()));
+					}
+				}
+				
+				if (!deliveringMsgList.isEmpty())
+					deliverCallback.accept(deliveringMsgList);
+				
+				lcLock.unlock();
+			}
+		}
 	}
 	
 	private void deliver(String msg)
@@ -84,80 +158,34 @@ public class LCausalBroadcast
 			return;
 		}
 		
-		// TODO de-synchronize
-		lock.lock();
-		
-		System.out.printf("=== lcMessage: %s%n", lcMessage);
-		pendingMsgQueueMap.get(lcMessage.getMessage().getHost()).add(lcMessage);
-		
-		// List of messages to deliver in batch
-		List<Message> deliveringMsgList = new LinkedList<>();
-		
-		// Id's of hosts which pending queue has to be checked for possible deliveries, as they are dependant to a
-		// host whose a message was recently delivered
-		Queue<Integer> toCheckPendingQueueIdQueue = new LinkedList<>();
-		toCheckPendingQueueIdQueue.add(lcMessage.getMessage().getHost());
-		
-		while (!toCheckPendingQueueIdQueue.isEmpty())
-		{
-			int toCheckQueueId = toCheckPendingQueueIdQueue.poll();
-			System.out.printf("=== toCheckQueueId: %s%n", toCheckQueueId);
-			
-			// TODO no need to loop over the pending queues, just add the inverse relation to the queue (self host is included!)
-			LCMessage toCheckLCMsg = pendingMsgQueueMap.get(toCheckQueueId).peek();
-			boolean canDeliver = toCheckLCMsg != null &&
-				toCheckLCMsg.getDependenciesMap().entrySet().stream()
-					.allMatch(entry -> entry.getValue() <= lastDeliveredIdxMap.get(entry.getKey()));
-			
-			System.out.printf("=== toCheckLCMsg: %s%n", toCheckLCMsg);
-			System.out.printf("=== canDeliver: %s%n", canDeliver);
-			
-			if (canDeliver)
-			{
-				Message deliveringMsg = pendingMsgQueueMap.get(toCheckQueueId).poll().getMessage();
-				deliveringMsgList.add(deliveringMsg);
-				lastDeliveredIdxMap.put(deliveringMsg.getHost(), deliveringMsg.getIdx());
-				toCheckPendingQueueIdQueue.addAll(hostInfluenceMap.get(deliveringMsg.getHost()));
-			}
-		}
-		
-		if (!deliveringMsgList.isEmpty())
-			deliverCallback.accept(deliveringMsgList);
-		
-		// TODO de-synchronize
-		lock.unlock();
+		pendingDeliverQueue.add(lcMessage);
 	}
 	
-	// TODO broadcast should block until broadcast message is written to file
-	// TODO check Main for this as well
-	// TODO maybe I should pass a lambda here and call it while holding a lock
 	public void broadcast(Message msg)
 	{
-		// TODO de-synchronize
-		lock.lock();
+		// Broadcast should block until broadcast message is written to file
+		lcLock.lock();
 		
 		Map<Integer, Integer> dependenciesMap = lastDeliveredIdxMap.entrySet().stream()
 			.filter(entry -> hostDependencySet.contains(entry.getKey()))
 			.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 		
 		dependenciesMap.put(id, localSequenceNumber);
-		localSequenceNumber += 1;
+		localSequenceNumber = msg.getIdx();
 		
 		LCMessage lcMessage = new LCMessage(msg, dependenciesMap);
 		urb.broadcast(lcMessage.toString());
 		
-		System.out.printf("Broadcast: %s%n", lcMessage);
-		
-		// TODO this needs to lock out the deliveries, otherwise we may broadcast m2 that depends on m1, while having
-		// TODO d m1, d m3, b m2 in the logs because the delivery of m3 happened concurrently
+		// This needs to lock out the deliveries, otherwise we may broadcast m2 that depends on m1, while having
+		// d m1, d m3, b m2 in the logs because the delivery of m3 happened concurrently
 		broadcastCallback.accept(msg);
 		
-		// TODO de-synchronize
-		lock.unlock();
+		lcLock.unlock();
 	}
 	
 	public void close()
 	{
 		urb.close();
+		deliverThread.interrupt();
 	}
 }

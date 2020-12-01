@@ -76,10 +76,7 @@ public class UniformReliableBroadcast
 		if (toForward)
 		{
 			URBMessage fwdURBMessage = new URBMessage(id, msg);
-			// TODO only forward to processes not in ack[msg]? (practically all but the sender)
-			// TODO not working for now, check later
 			bestEffortBroadcast.broadcast(fwdURBMessage.toString());
-//			bestEffortBroadcast.broadcast(fwdURBMessage.toString(), ackMap.get(msg));
 		}
 		
 		// Check for delivery

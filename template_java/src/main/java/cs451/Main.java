@@ -1,6 +1,5 @@
 package cs451;
 
-import cs451.LCausalBroadcast.FIFO;
 import cs451.LCausalBroadcast.LCausalBroadcast;
 import cs451.LCausalBroadcast.Message;
 import cs451.Parser.Parser;
@@ -157,6 +156,7 @@ public class Main
 		Random random = new Random();
 		for (int it = 1; it <= msgCount; it++)
 		{
+			// TODO [DEBUG] remove!
 			Thread.sleep(random.nextInt(10));
 			
 			lCausalBroadcast.broadcast(new Message(parser.myId(), it));
