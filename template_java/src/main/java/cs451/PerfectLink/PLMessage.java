@@ -11,7 +11,7 @@ class PLMessage implements Serializable
 {
 	public enum PLMessageType
 	{
-		Normal, ACK
+		Data, Ack
 	}
 	
 	private final PLMessageType messageType;
@@ -73,7 +73,7 @@ class PLMessage implements Serializable
 		if (headerParts.length != 6 || !headerParts[0].equals(String.valueOf(Constants.CC.SOH)))
 			error("malformed header");
 		
-		PLMessageType type = headerParts[1].equals(String.valueOf(Constants.CC.ENQ)) ? PLMessageType.Normal : PLMessageType.ACK;
+		PLMessageType type = headerParts[1].equals(String.valueOf(Constants.CC.ENQ)) ? PLMessageType.Data : PLMessageType.Ack;
 		int dataSize = Integer.parseInt(headerParts[5]);
 		
 		return new PLMessage(type,
@@ -86,7 +86,7 @@ class PLMessage implements Serializable
 	
 	public byte[] getBytes()
 	{
-		char type = messageType == PLMessageType.Normal ? Constants.CC.ENQ : Constants.CC.ACK;
+		char type = messageType == PLMessageType.Data ? Constants.CC.ENQ : Constants.CC.ACK;
 		
 		return String.format("%c%c%c%c%d%c%d%c%d%c%d%c%s",
 		                     Constants.CC.SOH,

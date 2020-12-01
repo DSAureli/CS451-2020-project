@@ -109,7 +109,7 @@ public class PerfectLink
 					sendThreadPool.submit(new SendThread(request));
 					
 					// We always want to send ACKs and only once, so we don't re-insert it in the queue
-					if (request.getType() == PLMessage.PLMessageType.Normal)
+					if (request instanceof DataPLRequest)
 					{
 						if (waitingACKSet.contains(request.getSeqNum()))
 						{
@@ -127,7 +127,9 @@ public class PerfectLink
 							////
 							
 							// Re-insert request in the queue with delay
-							pendingSendQueue.add(new PLRequest(request, (request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO())));
+							pendingSendQueue.add(
+								new DataPLRequest((DataPLRequest) request,
+								                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
 						}
 					}
 				}
@@ -170,13 +172,11 @@ public class PerfectLink
 
 		public void run()
 		{
-			PLMessage msg = request.getType() == PLMessage.PLMessageType.Normal ?
-				request.toNormalPLMessage(plRecvPort, System.currentTimeMillis())
-				:
-				request.toACKPLMessage(plRecvPort);
-			
+			PLMessage msg = request.toPLMessage(plRecvPort);
 			byte[] plMessageBytes = msg.getBytes();
+			
 			DatagramPacket plMessageDP = new DatagramPacket(plMessageBytes, plMessageBytes.length, request.getAddress(), request.getPort());
+			
 			try {
 				sendDS.send(plMessageDP);
 			} catch (IOException e) {
@@ -242,7 +242,7 @@ public class PerfectLink
 			}
 			
 			// Process according to the type
-			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.ACK)
+			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.Ack)
 			{
 				waitingACKSet.remove(recvPLMessage.getSeqNum());
 				
@@ -281,11 +281,11 @@ public class PerfectLink
 			else // Normal
 			{
 				// Send ACK
-				addRequestToSendQueue(PLRequest.newACKRequest(System.currentTimeMillis(),
-				                                              recvPLMessage.getSeqNum(),
-				                                              senderAddress,
-				                                              recvPLMessage.getSenderRecvPort(),
-				                                              recvPLMessage.getSendTimestamp()));
+				addRequestToSendQueue(new AckPLRequest(System.currentTimeMillis(),
+				                                       recvPLMessage.getSeqNum(),
+				                                       senderAddress,
+				                                       recvPLMessage.getSenderRecvPort(),
+				                                       recvPLMessage.getSendTimestamp()));
 				
 				Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
 				boolean alreadyReceived;
@@ -315,7 +315,7 @@ public class PerfectLink
 		
 		long seqNum = nextSeqNum.getAndIncrement();
 		waitingACKSet.add(seqNum);
-		addRequestToSendQueue(PLRequest.newNormalRequest(System.currentTimeMillis(), seqNum, address, port, data));
+		addRequestToSendQueue(new DataPLRequest(System.currentTimeMillis(), seqNum, address, port, data));
 	}
 	
 	public void close()
