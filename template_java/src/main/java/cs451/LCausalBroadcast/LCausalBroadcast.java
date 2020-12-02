@@ -173,14 +173,16 @@ public class LCausalBroadcast
 		dependenciesMap.put(id, localSequenceNumber);
 		localSequenceNumber = msg.getIdx();
 		
-		LCMessage lcMessage = new LCMessage(msg, dependenciesMap);
-		urb.broadcast(lcMessage.toString());
-		
 		// This needs to lock out the deliveries, otherwise we may broadcast m2 that depends on m1, while having
 		// d m1, d m3, b m2 in the logs because the delivery of m3 happened concurrently
 		broadcastCallback.accept(msg);
 		
 		lcLock.unlock();
+		
+		// This here after the unlock since everything may get stuck if urb.broadcast blocks
+		// (i.e. all processes broadcast at the same time and block while holding the lock)
+		LCMessage lcMessage = new LCMessage(msg, dependenciesMap);
+		urb.broadcast(lcMessage.toString());
 	}
 	
 	public void close()

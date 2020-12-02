@@ -17,6 +17,16 @@ import java.util.function.Consumer;
 
 public class PerfectLink
 {
+	// TODO synchronization on different monitors
+	
+	//// Constants for retransmission protocol [IETF RFC 6298] ////
+	private static final long RTO_MIN = 500;       // EDIT (original: 1000)
+	private static final long RTO_MAX = 10 * 1000; // EDIT (original: 60 * 1000)
+	private static final int RTO_G = 1;
+	private static final int RTO_K = 4;
+	private static final double RTO_ALPHA = 1 / 8.;
+	private static final double RTO_BETA = 1 / 4.;
+	
 	private final int plRecvPort;
 	private final DatagramSocket sendDS;
 	private final DatagramSocket recvDS;
@@ -64,10 +74,7 @@ public class PerfectLink
 	{
 		//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 		
-		long minRTO = 500; // EDIT (original: 1000)
-		long maxRTO = 10 * 1000; // EDIT (original: 60 * 1000)
-		
-		RTO = Math.min(maxRTO, Math.max(minRTO, RTO));
+		RTO = Math.min(RTO_MAX, Math.max(RTO_MIN, RTO));
 		
 		////
 		
@@ -252,10 +259,6 @@ public class PerfectLink
 					
 					RTOData rtoData = rtoDataMap.get(recvPLMessage.getSenderRecvPort());
 					long R = System.currentTimeMillis() - recvPLMessage.getSendTimestamp();
-					int G = 1;
-					int K = 4;
-					double alpha = 1 / 8.;
-					double beta = 1 / 4.;
 					
 					double newSRTT;
 					double newRTTVAR;
@@ -267,11 +270,11 @@ public class PerfectLink
 					}
 					else
 					{
-						newRTTVAR = (1 - beta) * rtoData.getRTTVAR() + beta * Math.abs(rtoData.getSRTT() - R);
-						newSRTT = (1 - alpha) * rtoData.getSRTT() + alpha * R;
+						newRTTVAR = (1 - RTO_BETA) * rtoData.getRTTVAR() + RTO_BETA * Math.abs(rtoData.getSRTT() - R);
+						newSRTT = (1 - RTO_ALPHA) * rtoData.getSRTT() + RTO_ALPHA * R;
 					}
 					
-					long newRTO = (long) (newSRTT + Math.max(G, K * newRTTVAR));
+					long newRTO = (long) (newSRTT + Math.max(RTO_G, RTO_K * newRTTVAR));
 					
 					////
 					
@@ -288,16 +291,8 @@ public class PerfectLink
 				                                       recvPLMessage.getSendTimestamp()));
 				
 				Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
-				boolean alreadyReceived;
-				// test&set
-				synchronized (PerfectLink.class)
-				{
-					alreadyReceived = receivedSet.contains(receivedSetEntry);
-					if (!alreadyReceived)
-						receivedSet.add(receivedSetEntry);
-				}
-				
-				if (!alreadyReceived)
+				// if receivedSetEntry was not already in receivedSet
+				if (receivedSet.add(receivedSetEntry))
 					recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
 			}
 		}
@@ -310,7 +305,7 @@ public class PerfectLink
 		synchronized (PerfectLink.class)
 		{
 			if (!rtoDataMap.containsKey(port))
-				setRTOData(port, true, 0., 0., 500); // EDIT (original: 1000)
+				setRTOData(port, true, 0., 0., RTO_MIN);
 		}
 		
 		long seqNum = nextSeqNum.getAndIncrement();
