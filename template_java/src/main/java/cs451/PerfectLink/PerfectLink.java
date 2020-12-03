@@ -64,6 +64,7 @@ public class PerfectLink
 	// Messages/ACKs still to be sent
 	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
 	
+	// This lock is also used for atomic access/modification of pendingSendQueue
 	private final Lock sendCoordinatorLock = new ReentrantLock();
 	private final Condition sendCoordinatorCondition = sendCoordinatorLock.newCondition();
 	
@@ -95,11 +96,11 @@ public class PerfectLink
 			while (!Thread.interrupted())
 			{
 				// Get the earliest request
-				PLRequest request;
+				PLRequest pendingRequest;
 				try
 				{
 					// take() is blocking
-					request = pendingSendQueue.take();
+					pendingRequest = pendingSendQueue.take();
 				}
 				catch (InterruptedException e)
 				{
@@ -108,55 +109,72 @@ public class PerfectLink
 					return;
 				}
 				
-				if (request.getSchedTimestamp() <= System.currentTimeMillis())
+				sendCoordinatorLock.lock();
+				long currentTime = System.currentTimeMillis();
+				
+				if (pendingRequest.getSchedTimestamp() <= currentTime)
 				{
-					// We always want to send ACKs and only once, so we don't re-insert it in the queue
-					if (request instanceof DataPLRequest)
+					// Retrieve all requests which schedule time has already passed
+					
+					List<PLRequest> requestList = new LinkedList<>();
+					requestList.add(pendingRequest);
+					
+					PLRequest nextPendingRequest = pendingSendQueue.peek();
+					while (nextPendingRequest != null && nextPendingRequest.getSchedTimestamp() <= currentTime)
 					{
-						if (waitingACKSet.contains(request.getSeqNum()))
-						{
-							// Message hasn't been ACK'd yet, "back off the timer"
-							
-							sendThreadPool.submit(new SendThread(request));
-							
-							//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
-							
-							synchronized (rtoDataMonitor)
-							{
-								RTOData rtoData = rtoDataMap.get(request.getPort());
-								long newRTO = 2 * rtoData.getRTO();
-								setRTOData(request.getPort(), rtoData.isFirstRTT(), rtoData.getSRTT(), rtoData.getRTTVAR(), newRTO);
-							}
-							
-							////
-							
-							// Re-insert request in the queue with delay
-							pendingSendQueue.add(
-								new DataPLRequest((DataPLRequest) request,
-								                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
-						}
+						requestList.add(pendingSendQueue.poll());
+						nextPendingRequest = pendingSendQueue.peek();
 					}
-					else
+					
+					for (PLRequest request : requestList)
 					{
-						sendThreadPool.submit(new SendThread(request));
+						if (request instanceof AckPLRequest)
+						{
+							// We always want to send ACKs and only once, so we don't re-insert it in the queue
+							sendThreadPool.submit(new SendThread(request));
+						}
+						else // DataPLRequest
+						{
+							if (waitingACKSet.contains(request.getSeqNum()))
+							{
+								sendThreadPool.submit(new SendThread(request));
+								
+								// Message hasn't been ACK'd yet, "back off the timer"
+								
+								//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+								
+								synchronized (rtoDataMonitor)
+								{
+									RTOData rtoData = rtoDataMap.get(request.getPort());
+									long newRTO = 2 * rtoData.getRTO();
+									setRTOData(request.getPort(), rtoData.isFirstRTT(), rtoData.getSRTT(), rtoData.getRTTVAR(), newRTO);
+								}
+								
+								////
+								
+								// Re-insert request in the queue with delay
+								pendingSendQueue.add(
+									new DataPLRequest((DataPLRequest) request,
+									                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
+							}
+						}
 					}
 				}
 				else
 				{
 					try
 					{
-						// Acquire lock for the Condition
-						sendCoordinatorLock.lock();
-						
 						// Re-insert request
-						pendingSendQueue.add(request);
+						pendingSendQueue.add(pendingRequest);
 						
 						// Wait for request timestamp or queue insertion signal
-						// await releases the lock!
-						sendCoordinatorCondition.awaitUntil(new Date(request.getSchedTimestamp()));
 						
-						// !!! AWAIT DOES NOT ALWAYS RELEASE THE LOCK YOU FUCKING JAVA !!!
-						sendCoordinatorLock.unlock();
+						// We already have the lock for the condition
+						// awaitUntil should release the lock, as per documentation
+						sendCoordinatorCondition.awaitUntil(new Date(pendingRequest.getSchedTimestamp()));
+						
+						// awaitUntil re-acquires the lock before returning, so we have to unlock it ourselves
+						// (we already do that at the end of the iteration)
 					}
 					catch (InterruptedException e)
 					{
@@ -165,6 +183,8 @@ public class PerfectLink
 						return;
 					}
 				}
+				
+				sendCoordinatorLock.unlock();
 			}
 		}
 	}
