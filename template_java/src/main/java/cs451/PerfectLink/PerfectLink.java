@@ -17,8 +17,6 @@ import java.util.function.Consumer;
 
 public class PerfectLink
 {
-	// TODO synchronization on different monitors
-	
 	//// Constants for retransmission protocol [IETF RFC 6298] ////
 	private static final long RTO_MIN = 500;       // EDIT (original: 1000)
 	private static final long RTO_MAX = 10 * 1000; // EDIT (original: 60 * 1000)
@@ -39,6 +37,7 @@ public class PerfectLink
 	
 	//// Data for retransmission protocol [IETF RFC 6298] ////
 	private final ConcurrentHashMap<Integer, RTOData> rtoDataMap;
+	private final Object rtoDataMonitor = new Object();
 	
 	public PerfectLink(int recvPort, Consumer<String> callback, ExecutorService recvThreadPool, ExecutorService sendThreadPool) throws SocketException
 	{
@@ -61,8 +60,6 @@ public class PerfectLink
 	private final AtomicInteger nextSeqNum = new AtomicInteger(0);
 	private final Set<Long> waitingACKSet = ConcurrentHashMap.newKeySet();
 	private final Set<Pair<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(); // <sender port, sequence number>
-	// TODO discard messages sent too far in the past, so that the set can be "pruned" at fixed intervals
-	//      (send timestamp together with messages)
 	
 	// Messages/ACKs still to be sent
 	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
@@ -113,8 +110,6 @@ public class PerfectLink
 				
 				if (request.getSchedTimestamp() <= System.currentTimeMillis())
 				{
-					sendThreadPool.submit(new SendThread(request));
-					
 					// We always want to send ACKs and only once, so we don't re-insert it in the queue
 					if (request instanceof DataPLRequest)
 					{
@@ -122,9 +117,11 @@ public class PerfectLink
 						{
 							// Message hasn't been ACK'd yet, "back off the timer"
 							
+							sendThreadPool.submit(new SendThread(request));
+							
 							//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 							
-							synchronized (PerfectLink.class)
+							synchronized (rtoDataMonitor)
 							{
 								RTOData rtoData = rtoDataMap.get(request.getPort());
 								long newRTO = 2 * rtoData.getRTO();
@@ -138,6 +135,10 @@ public class PerfectLink
 								new DataPLRequest((DataPLRequest) request,
 								                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
 						}
+					}
+					else
+					{
+						sendThreadPool.submit(new SendThread(request));
 					}
 				}
 				else
@@ -253,7 +254,7 @@ public class PerfectLink
 			{
 				waitingACKSet.remove(recvPLMessage.getSeqNum());
 				
-				synchronized (PerfectLink.class)
+				synchronized (rtoDataMonitor)
 				{
 					//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
 					
@@ -302,7 +303,7 @@ public class PerfectLink
 	
 	public void send(InetAddress address, int port, String data)
 	{
-		synchronized (PerfectLink.class)
+		synchronized (rtoDataMonitor)
 		{
 			if (!rtoDataMap.containsKey(port))
 				setRTOData(port, true, 0., 0., RTO_MIN);

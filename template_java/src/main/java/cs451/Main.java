@@ -25,11 +25,15 @@ public class Main
 	{
 		// immediately stop network packet processing
 		System.out.println("Immediately stopping network packet processing.");
-		lCausalBroadcast.close();
+		if (lCausalBroadcast != null)
+			lCausalBroadcast.close();
 		
 		// write/flush output file if necessary
-		System.out.println("Writing output.");
-		fileWriter.close();
+		if (fileWriter != null)
+		{
+			System.out.println("Writing output.");
+			fileWriter.close();
+		}
 	}
 	
 	private static void initSignalHandlers()
@@ -94,10 +98,19 @@ public class Main
 		
 		for (int lineNumber = 1; lineNumber <= parser.hosts().size(); lineNumber++)
 		{
-			hostDependencyMap.put(lineNumber,
-			                  Arrays.stream(fileReader.readLine().split(" "))
-				                  .map(Integer::parseInt)
-				                  .collect(Collectors.toSet()));
+			try
+			{
+				hostDependencyMap.put(lineNumber,
+				                  Arrays.stream(fileReader.readLine().split(" "))
+					                  .map(Integer::parseInt)
+					                  .collect(Collectors.toSet()));
+			}
+			catch (NullPointerException e)
+			{
+				e.printStackTrace();
+				System.out.println("Config is malformed! Aborting...");
+				System.exit(1);
+			}
 		}
 		
 		// TODO [DEBUG]

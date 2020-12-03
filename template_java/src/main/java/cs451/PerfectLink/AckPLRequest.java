@@ -14,12 +14,6 @@ public class AckPLRequest extends PLRequest
 		this.msgSendTimestamp = msgSendTimestamp;
 	}
 	
-	protected AckPLRequest(AckPLRequest request, long newTimestamp)
-	{
-		super(request, newTimestamp);
-		this.msgSendTimestamp = request.msgSendTimestamp;
-	}
-	
 	@Override
 	public PLMessage toPLMessage(int recvPort)
 	{
