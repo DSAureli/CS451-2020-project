@@ -84,7 +84,7 @@ class PLMessage implements Serializable
 		                     parts[1] == null ? null : parts[1].substring(0, dataSize)); // \0 does not automatically end a string in Java
 	}
 	
-	public byte[] getBytes()
+	public String getString()
 	{
 		char type = messageType == PLMessageType.Data ? Constants.CC.ENQ : Constants.CC.ACK;
 		
@@ -101,8 +101,12 @@ class PLMessage implements Serializable
 		                     Constants.CC.RS,
 		                     dataSize,
 		                     Constants.CC.STX,
-		                     data)
-				.getBytes(StandardCharsets.US_ASCII);
+		                     data);
+	}
+	
+	public byte[] getBytes()
+	{
+		return getString().getBytes(StandardCharsets.US_ASCII);
 	}
 	
 	@Override

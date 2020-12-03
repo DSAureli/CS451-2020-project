@@ -117,7 +117,7 @@ public class LCausalBroadcast
 				while (!toCheckPendingQueueIdQueue.isEmpty())
 				{
 					int toCheckQueueId = toCheckPendingQueueIdQueue.poll();
-					System.out.printf("=== toCheckQueueId: %s%n", toCheckQueueId);
+//					System.out.printf("=== toCheckQueueId: %s%n", toCheckQueueId);
 					
 					// No need to loop over the pending queues, just add the inverse relation to the queue (self host is included!)
 					LCMessage toCheckLCMsg = pendingMsgQueueMap.get(toCheckQueueId).peek();
@@ -125,8 +125,8 @@ public class LCausalBroadcast
 						toCheckLCMsg.getDependenciesMap().entrySet().stream()
 							.allMatch(entry -> entry.getValue() <= lastDeliveredIdxMap.get(entry.getKey()));
 					
-					System.out.printf("=== toCheckLCMsg: %s%n", toCheckLCMsg);
-					System.out.printf("=== canDeliver: %s%n", canDeliver);
+//					System.out.printf("=== toCheckLCMsg: %s%n", toCheckLCMsg);
+//					System.out.printf("=== canDeliver: %s%n", canDeliver);
 					
 					if (canDeliver)
 					{

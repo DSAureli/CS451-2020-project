@@ -17,6 +17,8 @@ import java.util.function.Consumer;
 
 public class PerfectLink
 {
+	private static final int RECV_BUF_SIZE = 1024; // TODO: try different sizes
+	
 	//// Constants for retransmission protocol [IETF RFC 6298] ////
 	private static final long RTO_MIN = 500;       // EDIT (original: 1000)
 	private static final long RTO_MAX = 10 * 1000; // EDIT (original: 60 * 1000)
@@ -112,52 +114,71 @@ public class PerfectLink
 				sendCoordinatorLock.lock();
 				long currentTime = System.currentTimeMillis();
 				
+				// If we can dispatch the earliest send request
 				if (pendingRequest.getSchedTimestamp() <= currentTime)
 				{
-					// Retrieve all requests which schedule time has already passed
+					// Retrieve all send requests we can dispatch (i.e. which schedule time has already passed)
+					// Sort them by destination host (port)
 					
-					List<PLRequest> requestList = new LinkedList<>();
-					requestList.add(pendingRequest);
+					Map<Integer, List<PLRequest>> requestMap = new HashMap<>(); // <port, request list>
+					requestMap.put(pendingRequest.getPort(), new LinkedList<>());
+					requestMap.get(pendingRequest.getPort()).add(pendingRequest);
 					
 					PLRequest nextPendingRequest = pendingSendQueue.peek();
 					while (nextPendingRequest != null && nextPendingRequest.getSchedTimestamp() <= currentTime)
 					{
-						requestList.add(pendingSendQueue.poll());
+						if (!requestMap.containsKey(nextPendingRequest.getPort()))
+							requestMap.put(nextPendingRequest.getPort(), new LinkedList<>());
+						
+						requestMap.get(nextPendingRequest.getPort()).add(pendingSendQueue.poll());
 						nextPendingRequest = pendingSendQueue.peek();
 					}
 					
-					for (PLRequest request : requestList)
+//					System.err.printf("===== requestMap: %s%n", requestMap);
+					
+					// Send batches
+					
+					for (Map.Entry<Integer, List<PLRequest>> entry : requestMap.entrySet())
 					{
-						if (request instanceof AckPLRequest)
+						List<PLRequest> requestList = new LinkedList<>();
+						
+						for (PLRequest request : entry.getValue())
 						{
-							// We always want to send ACKs and only once, so we don't re-insert it in the queue
-							sendThreadPool.submit(new SendThread(request));
-						}
-						else // DataPLRequest
-						{
-							if (waitingACKSet.contains(request.getSeqNum()))
+							if (request instanceof AckPLRequest)
 							{
-								sendThreadPool.submit(new SendThread(request));
-								
-								// Message hasn't been ACK'd yet, "back off the timer"
-								
-								//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
-								
-								synchronized (rtoDataMonitor)
+								// We always want to send ACKs and only once, so we don't re-insert it in the queue
+								requestList.add(request);
+							}
+							else // DataPLRequest
+							{
+								if (waitingACKSet.contains(request.getSeqNum()))
 								{
-									RTOData rtoData = rtoDataMap.get(request.getPort());
-									long newRTO = 2 * rtoData.getRTO();
-									setRTOData(request.getPort(), rtoData.isFirstRTT(), rtoData.getSRTT(), rtoData.getRTTVAR(), newRTO);
+									requestList.add(request);
+									
+									// Message hasn't been ACK'd yet, "back off the timer"
+									
+									//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+									
+									synchronized (rtoDataMonitor)
+									{
+										RTOData rtoData = rtoDataMap.get(request.getPort());
+										long newRTO = 2 * rtoData.getRTO();
+										setRTOData(request.getPort(), rtoData.isFirstRTT(), rtoData.getSRTT(), rtoData.getRTTVAR(), newRTO);
+									}
+									
+									////
+									
+									// Re-insert request in the queue with delay
+									pendingSendQueue.add(
+										new DataPLRequest((DataPLRequest) request,
+										                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
 								}
-								
-								////
-								
-								// Re-insert request in the queue with delay
-								pendingSendQueue.add(
-									new DataPLRequest((DataPLRequest) request,
-									                  request.getSchedTimestamp() + rtoDataMap.get(request.getPort()).getRTO()));
 							}
 						}
+						
+						// request list may be empty if only data requests for already ACK'd sequence numbers were present in the map list
+						if (!requestList.isEmpty())
+							sendThreadPool.submit(new SendThread(requestList));
 					}
 				}
 				else
@@ -191,24 +212,84 @@ public class PerfectLink
 	
 	private class SendThread implements Runnable
 	{
-		private final PLRequest request;
+		private final InetAddress address;
+		private final int port;
 		
-		public SendThread(PLRequest request)
+		private final List<PLRequest> requestList;
+		
+		public SendThread(List<PLRequest> requestList)
 		{
-			this.request = request;
+//			System.err.printf("requestList: %s%n", requestList);
+			this.address = requestList.get(0).getAddress();
+			this.port = requestList.get(0).getPort();
+			this.requestList = requestList;
+			
+			try
+			{
+				if (requestList.stream().map(PLRequest::getPort).distinct().count() != 1)
+					throw new Exception("different ports in request list");
+			}
+			catch (Exception e)
+			{
+				e.printStackTrace();
+				Thread.currentThread().interrupt();
+			}
 		}
 
 		public void run()
 		{
-			PLMessage msg = request.toPLMessage(plRecvPort);
-			byte[] plMessageBytes = msg.getBytes();
+			List<PLMessageBatch> msgBatchList = new LinkedList<>();
+			List<PLMessage> tempMsgList = new LinkedList<>();
 			
-			DatagramPacket plMessageDP = new DatagramPacket(plMessageBytes, plMessageBytes.length, request.getAddress(), request.getPort());
+			for (PLRequest request: requestList)
+			{
+				PLMessage requestMsg = request.toPLMessage(plRecvPort);
+				List<PLMessage> newTempMsgList = new LinkedList<>(tempMsgList);
+				newTempMsgList.add(requestMsg);
+				
+				PLMessageBatch tempBatch = new PLMessageBatch(newTempMsgList);
+				if (tempBatch.getBytes().length > RECV_BUF_SIZE)
+				{
+					if (newTempMsgList.size() == 1)
+					{
+						try
+						{
+							throw new Exception("Receive buffer size not sufficient for a single message");
+						}
+						catch (Exception e)
+						{
+							e.printStackTrace();
+							System.exit(1);
+						}
+					}
+					
+					msgBatchList.add(new PLMessageBatch(tempMsgList));
+					tempMsgList = new LinkedList<>();
+					tempMsgList.add(requestMsg);
+				}
+				else
+				{
+					tempMsgList = newTempMsgList;
+				}
+			}
 			
-			try {
-				sendDS.send(plMessageDP);
-			} catch (IOException e) {
-				e.printStackTrace();
+			msgBatchList.add(new PLMessageBatch(tempMsgList));
+			
+//			System.out.printf("===== msgBatchList: %s%n", msgBatchList);
+//			System.out.printf("===== requestList size: %s%n", requestList.size());
+//			System.out.printf("===== requests in batches: %s%n", msgBatchList.stream().map(PLMessageBatch::getPLMessageList).map(List::size).reduce(Integer::sum).get());
+			
+			for (PLMessageBatch messageBatch : msgBatchList)
+			{
+				byte[] messageBatchBytes = messageBatch.getBytes();
+				
+				DatagramPacket messageBatchBytesDP = new DatagramPacket(messageBatchBytes, messageBatchBytes.length, address, port);
+				
+				try {
+					sendDS.send(messageBatchBytesDP);
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
 			}
 		}
 	}
@@ -227,7 +308,7 @@ public class PerfectLink
 			while (!Thread.interrupted())
 			{
 				// Receive datagram
-				byte[] recvBuffer = new byte[1024];
+				byte[] recvBuffer = new byte[RECV_BUF_SIZE];
 				DatagramPacket dataDP = new DatagramPacket(recvBuffer, recvBuffer.length);
 				try {
 					recvDS.receive(dataDP);
@@ -257,10 +338,10 @@ public class PerfectLink
 		public void run()
 		{
 			// Deserialize message
-			PLMessage recvPLMessage;
+			PLMessageBatch recvPLMessageBatch;
 			try
 			{
-				recvPLMessage = PLMessage.fromBytes(recvBuffer);
+				recvPLMessageBatch = PLMessageBatch.fromBytes(recvBuffer);
 			}
 			catch (NotSerializableException e)
 			{
@@ -269,52 +350,55 @@ public class PerfectLink
 				return;
 			}
 			
-			// Process according to the type
-			if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.Ack)
+			for (PLMessage recvPLMessage : recvPLMessageBatch.getPLMessageList())
 			{
-				waitingACKSet.remove(recvPLMessage.getSeqNum());
-				
-				synchronized (rtoDataMonitor)
+				// Process according to the type
+				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.Ack)
 				{
-					//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+					waitingACKSet.remove(recvPLMessage.getSeqNum());
 					
-					RTOData rtoData = rtoDataMap.get(recvPLMessage.getSenderRecvPort());
-					long R = System.currentTimeMillis() - recvPLMessage.getSendTimestamp();
-					
-					double newSRTT;
-					double newRTTVAR;
-					
-					if (rtoData.isFirstRTT())
+					synchronized (rtoDataMonitor)
 					{
-						newSRTT = R;
-						newRTTVAR = R / 2.;
+						//// TCP's Retransmission Timer Algorithm [IETF RFC 6298] ////
+						
+						RTOData rtoData = rtoDataMap.get(recvPLMessage.getSenderRecvPort());
+						long R = System.currentTimeMillis() - recvPLMessage.getSendTimestamp();
+						
+						double newSRTT;
+						double newRTTVAR;
+						
+						if (rtoData.isFirstRTT())
+						{
+							newSRTT = R;
+							newRTTVAR = R / 2.;
+						}
+						else
+						{
+							newRTTVAR = (1 - RTO_BETA) * rtoData.getRTTVAR() + RTO_BETA * Math.abs(rtoData.getSRTT() - R);
+							newSRTT = (1 - RTO_ALPHA) * rtoData.getSRTT() + RTO_ALPHA * R;
+						}
+						
+						long newRTO = (long) (newSRTT + Math.max(RTO_G, RTO_K * newRTTVAR));
+						
+						////
+						
+						setRTOData(recvPLMessage.getSenderRecvPort(), false, newSRTT, newRTTVAR, newRTO);
 					}
-					else
-					{
-						newRTTVAR = (1 - RTO_BETA) * rtoData.getRTTVAR() + RTO_BETA * Math.abs(rtoData.getSRTT() - R);
-						newSRTT = (1 - RTO_ALPHA) * rtoData.getSRTT() + RTO_ALPHA * R;
-					}
-					
-					long newRTO = (long) (newSRTT + Math.max(RTO_G, RTO_K * newRTTVAR));
-					
-					////
-					
-					setRTOData(recvPLMessage.getSenderRecvPort(), false, newSRTT, newRTTVAR, newRTO);
 				}
-			}
-			else // Normal
-			{
-				// Send ACK
-				addRequestToSendQueue(new AckPLRequest(System.currentTimeMillis(),
-				                                       recvPLMessage.getSeqNum(),
-				                                       senderAddress,
-				                                       recvPLMessage.getSenderRecvPort(),
-				                                       recvPLMessage.getSendTimestamp()));
-				
-				Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
-				// if receivedSetEntry was not already in receivedSet
-				if (receivedSet.add(receivedSetEntry))
-					recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
+				else // Normal
+				{
+					// Send ACK
+					addRequestToSendQueue(new AckPLRequest(System.currentTimeMillis(),
+					                                       recvPLMessage.getSeqNum(),
+					                                       senderAddress,
+					                                       recvPLMessage.getSenderRecvPort(),
+					                                       recvPLMessage.getSendTimestamp()));
+					
+					Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
+					// if receivedSetEntry was not already in receivedSet
+					if (receivedSet.add(receivedSetEntry))
+						recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
+				}
 			}
 		}
 	}

@@ -130,7 +130,7 @@ public class Main
 			{
 				String out = String.format("b %s%n", msg.getIdx());
 				fileWriter.append(out);
-				System.out.print(out);
+//				System.out.print(out);
 			}
 			catch (IOException e)
 			{
@@ -145,7 +145,7 @@ public class Main
 				{
 					String out = String.format("d %s%n", msg);
 					fileWriter.append(out);
-					System.out.print(out);
+//					System.out.print(out);
 					
 					// TODO [DEBUG] for perfect network (validate_perfect.py)
 //					if (deliveredCount.incrementAndGet() == toDeliverCount)

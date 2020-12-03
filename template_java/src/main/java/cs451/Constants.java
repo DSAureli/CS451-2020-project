@@ -35,8 +35,10 @@ public class Constants
 	{
 		public static char SOH = (char) 1; // start of heading
 		public static char STX = (char) 2; // start of text
+		public static char EOT = (char) 4; // end of transmission
 		public static char ENQ = (char) 5; // enquiry
 		public static char ACK = (char) 6; // acknowledge
+		public static char FS = (char) 28; // file separator
 		public static char RS = (char) 30; // record separator
 	}
 }
