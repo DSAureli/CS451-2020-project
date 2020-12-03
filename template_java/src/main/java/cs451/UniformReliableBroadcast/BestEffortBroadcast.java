@@ -9,7 +9,6 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -51,19 +50,6 @@ public class BestEffortBroadcast
 			perfectLink.send(hostInfo._2(), hostInfo._3(), msg);
 		}
 	}
-	
-//	public void broadcast(String msg, Set<Integer> hostsToIgnore)
-//	{
-//		System.out.printf("[BEB.broadcast] hostsToIgnore: %s%n", hostsToIgnore);
-//
-//		recvThreadPool.submit(() -> deliverCallback.accept(msg));
-//
-//		for (Tuple3<Integer, InetAddress, Integer> hostInfo: hostsInfo)
-//		{
-//			if (!hostsToIgnore.contains(hostInfo._1()))
-//				perfectLink.send(hostInfo._2(), hostInfo._3(), msg);
-//		}
-//	}
 	
 	public void close()
 	{

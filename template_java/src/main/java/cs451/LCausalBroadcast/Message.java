@@ -1,7 +1,5 @@
 package cs451.LCausalBroadcast;
 
-import java.util.StringJoiner;
-
 public class Message
 {
 	private final int host;

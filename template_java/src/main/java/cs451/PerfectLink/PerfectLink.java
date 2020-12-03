@@ -17,7 +17,7 @@ import java.util.function.Consumer;
 
 public class PerfectLink
 {
-	private static final int RECV_BUF_SIZE = 1024; // TODO: try different sizes
+	private static final int RECV_BUF_SIZE = 1024;
 	
 	//// Constants for retransmission protocol [IETF RFC 6298] ////
 	private static final long RTO_MIN = 500;       // EDIT (original: 1000)
@@ -134,8 +134,6 @@ public class PerfectLink
 						nextPendingRequest = pendingSendQueue.peek();
 					}
 					
-//					System.err.printf("===== requestMap: %s%n", requestMap);
-					
 					// Send batches
 					
 					for (Map.Entry<Integer, List<PLRequest>> entry : requestMap.entrySet())
@@ -219,7 +217,6 @@ public class PerfectLink
 		
 		public SendThread(List<PLRequest> requestList)
 		{
-//			System.err.printf("requestList: %s%n", requestList);
 			this.address = requestList.get(0).getAddress();
 			this.port = requestList.get(0).getPort();
 			this.requestList = requestList;
@@ -274,10 +271,6 @@ public class PerfectLink
 			}
 			
 			msgBatchList.add(new PLMessageBatch(tempMsgList));
-			
-//			System.out.printf("===== msgBatchList: %s%n", msgBatchList);
-//			System.out.printf("===== requestList size: %s%n", requestList.size());
-//			System.out.printf("===== requests in batches: %s%n", msgBatchList.stream().map(PLMessageBatch::getPLMessageList).map(List::size).reduce(Integer::sum).get());
 			
 			for (PLMessageBatch messageBatch : msgBatchList)
 			{
