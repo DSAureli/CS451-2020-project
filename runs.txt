@@ -72,3 +72,12 @@ test random sleep
 no sleep: ~15s
 rand 5ms: ~30s
 rand 10ms: ~30s
+
+===============================================================================================================================
+
+test window
+
+[VM, 3p, 100000m, perfect, all dep] (time measured manually)
+
+without window: > 8m
+with window 1000: ~ 1m 20s

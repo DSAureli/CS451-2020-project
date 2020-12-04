@@ -9,6 +9,8 @@ import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -27,6 +29,11 @@ public class LCausalBroadcast
 	private final HashMap<Integer, PriorityQueue<LCMessage>> pendingMsgQueueMap; // <HostId, Queue<Msg>>
 	private final HashMap<Integer, Integer> lastDeliveredIdxMap; // <HostId, MsgIdx>
 	private Integer localSequenceNumber;
+	
+	private static final int brWindowSize = 1000;
+	private final Lock brWindowLock = new ReentrantLock();
+	private final Condition brWindowCondition = brWindowLock.newCondition();
+	private final AtomicInteger brWindowAvailableSlots = new AtomicInteger(brWindowSize);
 	
 	private final Consumer<Message> broadcastCallback;
 	private final Consumer<List<Message>> deliverCallback;
@@ -155,10 +162,28 @@ public class LCausalBroadcast
 		}
 		
 		pendingDeliverQueue.add(lcMessage);
+		
+		// Free broadcasting window slot if delivering message was broadcast by self
+		
+		if (lcMessage.getMessage().getHost() == id)
+		{
+			brWindowLock.lock();
+			brWindowAvailableSlots.getAndIncrement();
+			brWindowCondition.signal();
+			brWindowLock.unlock();
+		}
 	}
 	
-	public void broadcast(Message msg)
+	public void broadcast(Message msg) throws InterruptedException
 	{
+		// First block on broadcasting window
+		
+		brWindowLock.lock();
+		if (brWindowAvailableSlots.get() < 1)
+			brWindowCondition.await();
+		brWindowAvailableSlots.getAndDecrement();
+		brWindowLock.unlock();
+		
 		// Broadcast should block until broadcast message is written to file
 		lcLock.lock();
 		
