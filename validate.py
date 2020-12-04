@@ -309,7 +309,7 @@ class LCausalBroadcastValidation(Validation):
 					
 					msg_dep_dict = self.msg_lc_dep[(snd, msg)]
 					if not all(last_deliver[snd] >= msg_dep_dict[snd] for snd in msg_dep_dict):
-						print(f"File {out_filename}, Line {line_n}: Causality violated. Missing previous delivery of '{snd} {msg_dep_dict[snd]}'")
+						print(f"File {out_filename}, Line {line_n}: Causality violated. Missing previous delivery of '{msg_dep_dict[snd]}'")
 						return False
 					
 					last_deliver[snd] = msg
