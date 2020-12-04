@@ -8,7 +8,6 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -57,7 +56,6 @@ public class Main
 		
 		initSignalHandlers();
 		
-		// example
 		long pid = ProcessHandle.current().pid();
 		System.out.println("My PID is " + pid + ".");
 		System.out.println("Use 'kill -SIGINT " + pid + " ' or 'kill -SIGTERM " + pid + " ' to stop processing packets.");
@@ -84,9 +82,7 @@ public class Main
 			System.exit(1);
 		}
 		
-		
-		// TODO [DEBUG]
-		System.out.printf("threadPoolSize: %d%n", threadPoolSize);
+		////
 		
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		
@@ -113,15 +109,7 @@ public class Main
 			}
 		}
 		
-		// TODO [DEBUG]
-		System.out.printf("dependencyMap: %s%n", hostDependencyMap);
-		
-		
-		// TODO [DEBUG] for perfect network (validate_perfect.py)
-//		int toDeliverCount = parser.hosts().size() * msgCount;
-//		AtomicInteger deliveredCount = new AtomicInteger();
-//		long startTime = System.currentTimeMillis();
-		
+		////
 		
 		fileWriter = new BufferedWriter(new FileWriter(parser.output()));
 		
@@ -130,7 +118,6 @@ public class Main
 			{
 				String out = String.format("b %s%n", msg.getIdx());
 				fileWriter.append(out);
-//				System.out.print(out);
 			}
 			catch (IOException e)
 			{
@@ -145,11 +132,6 @@ public class Main
 				{
 					String out = String.format("d %s%n", msg);
 					fileWriter.append(out);
-//					System.out.print(out);
-					
-					// TODO [DEBUG] for perfect network (validate_perfect.py)
-//					if (deliveredCount.incrementAndGet() == toDeliverCount)
-//						System.out.printf("[END] Time: %d ms%n", System.currentTimeMillis() - startTime);
 				}
 				catch (IOException e)
 				{
@@ -169,9 +151,6 @@ public class Main
 		Random random = new Random();
 		for (int it = 1; it <= msgCount; it++)
 		{
-			// TODO [DEBUG] remove!
-			Thread.sleep(random.nextInt(10));
-			
 			lCausalBroadcast.broadcast(new Message(parser.myId(), it));
 		}
 		
