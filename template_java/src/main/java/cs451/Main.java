@@ -170,7 +170,7 @@ public class Main
 		for (int it = 1; it <= msgCount; it++)
 		{
 			// TODO [DEBUG] remove!
-			Thread.sleep(random.nextInt(10));
+//			Thread.sleep(random.nextInt(10));
 			
 			lCausalBroadcast.broadcast(new Message(parser.myId(), it));
 		}

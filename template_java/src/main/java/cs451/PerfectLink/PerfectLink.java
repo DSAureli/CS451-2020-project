@@ -59,9 +59,20 @@ public class PerfectLink
 		this.rtoDataMap = new ConcurrentHashMap<>();
 	}
 	
-	private final AtomicInteger nextSeqNum = new AtomicInteger(0);
-	private final Set<Long> waitingACKSet = ConcurrentHashMap.newKeySet();
-	private final Set<Pair<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(); // <sender port, sequence number>
+	// EDIT
+//	private final AtomicInteger nextSeqNum = new AtomicInteger(0);
+	private final ConcurrentHashMap<Integer, AtomicInteger> nextSeqNumMap = new ConcurrentHashMap<>();
+	
+	// EDIT
+//	private final Set<Long> waitingACKSet = ConcurrentHashMap.newKeySet();
+	private final ConcurrentHashMap<Integer, Set<Long>> waitingACKSetMap = new ConcurrentHashMap<>();
+	
+	// EDIT
+//	private final Set<Pair<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(); // <sender port, sequence number>
+	private final ConcurrentHashMap<Integer, Set<Long>> receivedSetMap = new ConcurrentHashMap<>(); // <sender port, sequence number>
+	private final ConcurrentHashMap<Integer, Long> minReceivedMap = new ConcurrentHashMap<>(); // <sender port, sequence number>
+	private final Object receivedMapsMonitor = new Object();
+	private final ConcurrentHashMap<Integer, Object> receivedMonitorMap = new ConcurrentHashMap<>();
 	
 	// Messages/ACKs still to be sent
 	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
@@ -149,7 +160,9 @@ public class PerfectLink
 							}
 							else // DataPLRequest
 							{
-								if (waitingACKSet.contains(request.getSeqNum()))
+								// EDIT
+//								if (waitingACKSet.contains(request.getSeqNum()))
+								if (waitingACKSetMap.get(request.getPort()).contains(request.getSeqNum()))
 								{
 									requestList.add(request);
 									
@@ -348,7 +361,9 @@ public class PerfectLink
 				// Process according to the type
 				if (recvPLMessage.getMessageType() == PLMessage.PLMessageType.Ack)
 				{
-					waitingACKSet.remove(recvPLMessage.getSeqNum());
+					// EDIT
+//					waitingACKSet.remove(recvPLMessage.getSeqNum());
+					waitingACKSetMap.get(recvPLMessage.getSenderRecvPort()).remove(recvPLMessage.getSeqNum());
 					
 					synchronized (rtoDataMonitor)
 					{
@@ -387,10 +402,49 @@ public class PerfectLink
 					                                       recvPLMessage.getSenderRecvPort(),
 					                                       recvPLMessage.getSendTimestamp()));
 					
-					Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
+					// EDIT
+					
+//					Pair<Integer, Long> receivedSetEntry = new Pair<>(recvPLMessage.getSenderRecvPort(), recvPLMessage.getSeqNum());
 					// if receivedSetEntry was not already in receivedSet
-					if (receivedSet.add(receivedSetEntry))
-						recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
+//					if (receivedSet.add(receivedSetEntry))
+//						recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
+					
+					int senderPort = recvPLMessage.getSenderRecvPort();
+					long seqNum = recvPLMessage.getSeqNum();
+					
+					synchronized (receivedMapsMonitor)
+					{
+						receivedSetMap.putIfAbsent(senderPort, new HashSet<>());
+						minReceivedMap.putIfAbsent(senderPort, -1L);
+						receivedMonitorMap.putIfAbsent(senderPort, new Object());
+					}
+					
+					synchronized (receivedMonitorMap.get(senderPort))
+					{
+						if (seqNum > minReceivedMap.get(senderPort)
+							&&
+							receivedSetMap.get(senderPort).add(seqNum)) // side-effect!
+						{
+							// Deliver
+							recvThreadPool.submit(() -> callback.accept(recvPLMessage.getData()));
+							
+							// Compact received set
+							
+							Set<Long> receivedSet = receivedSetMap.get(senderPort);
+							long minNext = minReceivedMap.get(senderPort) + 1;
+							
+							while (receivedSet.contains(minNext))
+							{
+								receivedSet.remove(minNext);
+								minReceivedMap.put(senderPort, minNext);
+								
+								minNext = minReceivedMap.get(senderPort) + 1;
+							}
+						}
+
+//						System.out.printf("receivedSetMap[%s]: %s%n", senderPort, receivedSetMap.get(senderPort));
+//						System.out.printf("minReceivedMap[%s]: %s%n", senderPort, minReceivedMap.get(senderPort));
+					}
 				}
 			}
 		}
@@ -406,8 +460,16 @@ public class PerfectLink
 				setRTOData(port, true, 0., 0., RTO_MIN);
 		}
 		
-		long seqNum = nextSeqNum.getAndIncrement();
-		waitingACKSet.add(seqNum);
+		// EDIT
+//		long seqNum = nextSeqNum.getAndIncrement();
+		nextSeqNumMap.putIfAbsent(port, new AtomicInteger(0));
+		long seqNum = nextSeqNumMap.get(port).getAndIncrement();
+		
+		// EDIT
+//		waitingACKSet.add(seqNum);
+		waitingACKSetMap.putIfAbsent(port, new HashSet<>());
+		waitingACKSetMap.get(port).add(seqNum);
+		
 		addRequestToSendQueue(new DataPLRequest(System.currentTimeMillis(), seqNum, address, port, data));
 	}
 	
