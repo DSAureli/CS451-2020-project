@@ -87,7 +87,7 @@ public class Main
 		Coordinator coordinator = new Coordinator(parser.myId(), parser.barrierIp(), parser.barrierPort(), parser.signalIp(), parser.signalPort());
 		
 		int msgCount;
-		Map<Integer, Set<Integer>> hostDependencyMap = new HashMap<>();
+		Map<Integer, Set<Integer>> hostDependencyMap = new HashMap<>(parser.hosts().size());
 
 		BufferedReader fileReader = Files.newBufferedReader(Paths.get(parser.config()));
 		msgCount = Integer.parseInt(fileReader.readLine());
@@ -97,9 +97,9 @@ public class Main
 			try
 			{
 				hostDependencyMap.put(lineNumber,
-				                  Arrays.stream(fileReader.readLine().split(" "))
-					                  .map(Integer::parseInt)
-					                  .collect(Collectors.toSet()));
+				                      Arrays.stream(fileReader.readLine().split(" "))
+					                      .map(Integer::parseInt)
+					                      .collect(Collectors.toSet()));
 			}
 			catch (NullPointerException e)
 			{
@@ -148,7 +148,6 @@ public class Main
 		
 		System.out.println("Broadcasting messages...");
 		
-		Random random = new Random();
 		for (int it = 1; it <= msgCount; it++)
 		{
 			lCausalBroadcast.broadcast(new Message(parser.myId(), it));

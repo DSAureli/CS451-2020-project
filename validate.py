@@ -209,7 +209,7 @@ class LCausalBroadcastValidation(Validation):
 		# Use the `extraParameter` to pass any information you think is relevant
 		
 		self.proc_id_range = range(1, processes + 1)
-		self.max_dep_n: int = extraParams["max_dep_n"] if extraParams["max_dep_n"] else processes - 1
+		self.max_dep_n: int = extraParams["max_dep_n"] if extraParams["max_dep_n"] else processes
 		self.ex_config: str = extraParams["ex_config"]
 		
 		self.host_lc_dep: Dict[int, Set[int]] = {} # host -> {hosts_dep}
@@ -245,8 +245,9 @@ class LCausalBroadcastValidation(Validation):
 			config.write("{}\n".format(self.messages))
 			
 			for proc_id in self.proc_id_range:
-				dep_n = random.randint(0, self.max_dep_n) # inclusive
-				dep_list = random.sample([id for id in self.proc_id_range if id != proc_id], dep_n) # choice without replacement
+				dep_n = random.randint(1, self.max_dep_n) # inclusive
+				dep_list = [proc_id]
+				dep_list.extend(random.sample([id for id in self.proc_id_range if id != proc_id], dep_n - 1)) # choice without replacement
 				dep_str = " ".join((str(dep) for dep in dep_list))
 				config_line = f"{proc_id} {dep_str}"
 				config.write(f"{config_line}\n")
@@ -309,7 +310,7 @@ class LCausalBroadcastValidation(Validation):
 					
 					msg_dep_dict = self.msg_lc_dep[(snd, msg)]
 					if not all(last_deliver[snd] >= msg_dep_dict[snd] for snd in msg_dep_dict):
-						print(f"File {out_filename}, Line {line_n}: Causality violated. Missing previous delivery of '{msg_dep_dict[snd]}'")
+						print(f"File {out_filename}, Line {line_n}: Causality violated. Missing previous delivery of '{snd} {msg_dep_dict[snd]}'")
 						return False
 					
 					last_deliver[snd] = msg

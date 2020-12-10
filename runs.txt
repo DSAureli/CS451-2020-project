@@ -81,3 +81,10 @@ test window
 
 without window: > 8m
 with window 1000: ~ 1m 20s
+
+===============================================================================================================================
+
+[VM, 3p, 10000m, perfect, all dep] (manually)
+
+without hash init size: 12.5-13s
+with hash init size: 12.5

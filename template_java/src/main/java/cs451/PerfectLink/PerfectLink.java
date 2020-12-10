@@ -38,7 +38,7 @@ public class PerfectLink
 	private final Thread recvCoordinatorThread;
 	
 	//// Data for retransmission protocol [IETF RFC 6298] ////
-	private final ConcurrentHashMap<Integer, RTOData> rtoDataMap;
+	private final ConcurrentHashMap<Integer, RTOData> rtoDataMap; // <host, retransmission timeout data>
 	private final Object rtoDataMonitor = new Object();
 	
 	public PerfectLink(int recvPort, Consumer<String> callback, ExecutorService recvThreadPool, ExecutorService sendThreadPool) throws SocketException
@@ -56,12 +56,12 @@ public class PerfectLink
 		this.recvCoordinatorThread = new Thread(new ReceiveCoordinatorThread(callback));
 		this.recvCoordinatorThread.start();
 		
-		this.rtoDataMap = new ConcurrentHashMap<>();
+		this.rtoDataMap = new ConcurrentHashMap<>(200);
 	}
 	
-	private final AtomicInteger nextSeqNum = new AtomicInteger(0);
-	private final Set<Long> waitingACKSet = ConcurrentHashMap.newKeySet();
-	private final Set<Pair<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(); // <sender port, sequence number>
+	private final AtomicInteger nextSeqNum = new AtomicInteger(0); // messages sequence number
+	private final Set<Long> waitingACKSet = ConcurrentHashMap.newKeySet(1000); // messages waiting for ACK
+	private final Set<Pair<Integer, Long>> receivedSet = ConcurrentHashMap.newKeySet(100000); // <sender port, sequence number>
 	
 	// Messages/ACKs still to be sent
 	private final PriorityBlockingQueue<PLRequest> pendingSendQueue = new PriorityBlockingQueue<>(1, Comparator.comparingLong(PLRequest::getSchedTimestamp));
@@ -120,7 +120,7 @@ public class PerfectLink
 					// Retrieve all send requests we can dispatch (i.e. which schedule time has already passed)
 					// Sort them by destination host (port)
 					
-					Map<Integer, List<PLRequest>> requestMap = new HashMap<>(); // <port, request list>
+					Map<Integer, List<PLRequest>> requestMap = new HashMap<>(10); // <port, request list>
 					requestMap.put(pendingRequest.getPort(), new LinkedList<>());
 					requestMap.get(pendingRequest.getPort()).add(pendingRequest);
 					
@@ -235,6 +235,8 @@ public class PerfectLink
 
 		public void run()
 		{
+			// Build message batches which byte array encoding fits the receive buffer
+			
 			List<PLMessageBatch> msgBatchList = new LinkedList<>();
 			List<PLMessage> tempMsgList = new LinkedList<>();
 			
@@ -271,6 +273,8 @@ public class PerfectLink
 			}
 			
 			msgBatchList.add(new PLMessageBatch(tempMsgList));
+			
+			// Send message batches
 			
 			for (PLMessageBatch messageBatch : msgBatchList)
 			{
@@ -402,10 +406,12 @@ public class PerfectLink
 	{
 		synchronized (rtoDataMonitor)
 		{
+			// Init RTO data for host if missing
 			if (!rtoDataMap.containsKey(port))
 				setRTOData(port, true, 0., 0., RTO_MIN);
 		}
 		
+		// Add data send request to the queue
 		long seqNum = nextSeqNum.getAndIncrement();
 		waitingACKSet.add(seqNum);
 		addRequestToSendQueue(new DataPLRequest(System.currentTimeMillis(), seqNum, address, port, data));

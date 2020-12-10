@@ -13,9 +13,9 @@ public class UniformReliableBroadcast
 {
 	// Majority-Ack Uniform Reliable Broadcast
 	
-	private final Set<String> deliveredSet = ConcurrentHashMap.newKeySet();
-	private final Set<String> forwardedSet = ConcurrentHashMap.newKeySet();
-	private final ConcurrentHashMap<String, Set<Integer>> ackMap = new ConcurrentHashMap<>();
+	private final Set<String> deliveredSet = ConcurrentHashMap.newKeySet(1000);
+	private final Set<String> forwardedSet = ConcurrentHashMap.newKeySet(1000);
+	private final ConcurrentHashMap<String, Set<Integer>> ackMap = new ConcurrentHashMap<>(1000); // <message, set of hosts>
 	
 	private final BestEffortBroadcast bestEffortBroadcast;
 	private final int hostsCount;
@@ -58,7 +58,7 @@ public class UniformReliableBroadcast
 		String msg = urbMessage.getMessage();
 		
 		// Add sender to ack[msg]
-		ackMap.putIfAbsent(msg, ConcurrentHashMap.newKeySet());
+		ackMap.putIfAbsent(msg, ConcurrentHashMap.newKeySet(hostsCount));
 		ackMap.get(msg).add(urbMessage.getSender());
 		
 		// Forward message
